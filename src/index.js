@@ -10,6 +10,15 @@ const createRouter = require('./routes');
 const config = require('../config/config.json');
 const mediatorConfig = require('../config/mediator.json');
 
+// Support environment variable overrides for credentials
+// e.g. SOURCE_isanteplus_PASSWORD=secret overrides source "isanteplus" password
+config.sources.forEach((source) => {
+  const envUser = process.env[`SOURCE_${source.id}_USERNAME`];
+  const envPass = process.env[`SOURCE_${source.id}_PASSWORD`];
+  if (envUser !== undefined) source.username = envUser;
+  if (envPass !== undefined) source.password = envPass;
+});
+
 const app = express();
 const fhirClient = new FhirClient(config.performance || {});
 const paginationManager = new PaginationManager(config.pagination);
@@ -26,6 +35,7 @@ app.get('/health', (req, res) => {
 });
 
 const port = config.app.port || 3000;
+let server;
 
 async function start() {
   console.log(
@@ -33,7 +43,6 @@ async function start() {
     config.sources.map((s) => `${s.id} (${s.name})`).join(', ')
   );
 
-  // Validate all source credentials on startup — fail fast if any are wrong
   try {
     await sourceMonitor.validateAll(config.sources, fhirClient);
     console.log('All sources validated successfully');
@@ -43,10 +52,9 @@ async function start() {
     process.exit(1);
   }
 
-  app.listen(port, () => {
+  server = app.listen(port, () => {
     console.log(`FHIR Aggregator Mediator listening on port ${port}`);
 
-    // Register with OpenHIM
     registerMediator(config.mediator.api, mediatorConfig, (err) => {
       if (err) {
         console.error('Failed to register mediator with OpenHIM:', err.message);
@@ -58,5 +66,27 @@ async function start() {
     });
   });
 }
+
+// Graceful shutdown — finish in-flight requests, close connection pools
+function shutdown(signal) {
+  console.log(`${signal} received, shutting down gracefully...`);
+  if (server) {
+    server.close(() => {
+      console.log('HTTP server closed');
+      fhirClient.destroy();
+      process.exit(0);
+    });
+    // Force exit after 10 seconds if connections don't drain
+    setTimeout(() => {
+      console.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  } else {
+    process.exit(0);
+  }
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 start();

@@ -139,11 +139,7 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
     const { resourceType } = req.params;
     const queryParams = { ...req.query };
     const count = parseInt(queryParams._count || '20', 10);
-
-    console.log(
-      `[routes] Search ${resourceType} from ${config.sources.length} sources, params:`,
-      queryParams
-    );
+    const startTime = Date.now();
 
     try {
       const { entries, totalCount, sourceTokens, hasMore, failedSources } =
@@ -157,8 +153,9 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
       setFailureHeaders(res, failedSources);
       const token = hasMore ? paginationManager.createToken(sourceTokens) : null;
       const bundle = buildBundle(entries, totalCount, token, getBaseUrl(req), count);
+      const elapsed = Date.now() - startTime;
       console.log(
-        `[routes] ${resourceType}: ${entries.length} entries, total=${totalCount}, hasMore=${hasMore}` +
+        `[routes] ${resourceType}: ${entries.length} entries, total=${totalCount}, ${elapsed}ms` +
           (failedSources.length > 0 ? `, FAILED: ${failedSources.join(',')}` : '')
       );
       res.json(bundle);
