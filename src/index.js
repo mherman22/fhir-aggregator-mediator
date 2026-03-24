@@ -11,7 +11,7 @@ const config = require('../config/config.json');
 const mediatorConfig = require('../config/mediator.json');
 
 const app = express();
-const fhirClient = new FhirClient();
+const fhirClient = new FhirClient(config.performance || {});
 const paginationManager = new PaginationManager(config.pagination);
 const sourceMonitor = new SourceMonitor();
 const router = createRouter(config, paginationManager, fhirClient, sourceMonitor);

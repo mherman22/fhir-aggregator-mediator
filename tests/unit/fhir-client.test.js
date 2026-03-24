@@ -7,7 +7,7 @@ describe('FhirClient', () => {
   let client;
 
   beforeEach(() => {
-    client = new FhirClient(5000);
+    client = new FhirClient({ timeout: 5000, maxSocketsPerSource: 2 });
     nock.cleanAll();
   });
 

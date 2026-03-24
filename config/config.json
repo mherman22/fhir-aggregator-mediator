@@ -44,5 +44,9 @@
   "pagination": {
     "cacheMaxSize": 1000,
     "cacheTtlMs": 3600000
+  },
+  "performance": {
+    "timeoutMs": 30000,
+    "maxSocketsPerSource": 5
   }
 }
