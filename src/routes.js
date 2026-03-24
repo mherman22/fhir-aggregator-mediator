@@ -13,9 +13,6 @@ function buildBundle(entries, totalCount, paginationToken, baseUrl, count) {
   };
 
   if (paginationToken) {
-    // Build next link in the format fhir-data-pipes expects:
-    // <fhirServerUrl>?_getpages=<token>&_getpagesoffset=<count>&_count=<count>
-    // fhir-data-pipes extracts _getpages and builds its own offset URLs
     const fhirBase = baseUrl.split('?')[0].replace(/\/[^/]+$/, '');
     bundle.link.push({
       relation: 'next',
@@ -26,11 +23,18 @@ function buildBundle(entries, totalCount, paginationToken, baseUrl, count) {
   return bundle;
 }
 
+function setFailureHeaders(res, failedSources) {
+  if (failedSources && failedSources.length > 0) {
+    res.set('X-Aggregator-Sources-Failed', failedSources.join(','));
+    res.set('X-Aggregator-Sources-Failed-Count', String(failedSources.length));
+  }
+}
+
 function getBaseUrl(req) {
   return `${req.protocol}://${req.get('host')}${req.originalUrl}`;
 }
 
-function createRouter(config, paginationManager, fhirClient) {
+function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
   const router = express.Router();
 
   // /fhir/metadata
@@ -64,8 +68,7 @@ function createRouter(config, paginationManager, fhirClient) {
     });
   });
 
-  // /fhir?_getpages=<token>&_getpagesoffset=N&_count=M — offset-based pagination
-  // fhir-data-pipes constructs these URLs to fetch pages in parallel
+  // /fhir?_getpages=<token>&_getpagesoffset=N&_count=M
   router.get('/fhir', async (req, res) => {
     if (!req.query._getpages) {
       return res.status(400).json({
@@ -99,14 +102,10 @@ function createRouter(config, paginationManager, fhirClient) {
     }
 
     try {
-      const { entries } = await aggregator.fetchWithOffset(
-        state,
-        offset,
-        count,
-        config.sources,
-        fhirClient
+      const { entries, failedSources } = await aggregator.fetchWithOffset(
+        state, offset, count, config.sources, fhirClient, sourceMonitor
       );
-      // Return entries without a next link — fhir-data-pipes manages its own offsets
+      setFailureHeaders(res, failedSources);
       const bundle = {
         resourceType: 'Bundle',
         type: 'searchset',
@@ -123,7 +122,7 @@ function createRouter(config, paginationManager, fhirClient) {
     }
   });
 
-  // /fhir/:resourceType — initial search, fan out to all sources
+  // /fhir/:resourceType
   router.get('/fhir/:resourceType', async (req, res) => {
     const { resourceType } = req.params;
     const queryParams = { ...req.query };
@@ -135,16 +134,16 @@ function createRouter(config, paginationManager, fhirClient) {
     );
 
     try {
-      const { entries, totalCount, sourceTokens, hasMore } = await aggregator.searchAll(
-        `/${resourceType}`,
-        queryParams,
-        config.sources,
-        fhirClient
-      );
+      const { entries, totalCount, sourceTokens, hasMore, failedSources } =
+        await aggregator.searchAll(
+          `/${resourceType}`, queryParams, config.sources, fhirClient, sourceMonitor
+        );
+      setFailureHeaders(res, failedSources);
       const token = hasMore ? paginationManager.createToken(sourceTokens) : null;
       const bundle = buildBundle(entries, totalCount, token, getBaseUrl(req), count);
       console.log(
-        `[routes] Returning ${entries.length} entries, total=${totalCount}, hasMore=${hasMore}`
+        `[routes] ${resourceType}: ${entries.length} entries, total=${totalCount}, hasMore=${hasMore}` +
+        (failedSources.length > 0 ? `, FAILED: ${failedSources.join(',')}` : '')
       );
       res.json(bundle);
     } catch (err) {
