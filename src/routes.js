@@ -57,8 +57,15 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
         {
           mode: 'server',
           resource: [
-            'Location', 'Patient', 'Encounter', 'Observation', 'Condition',
-            'AllergyIntolerance', 'MedicationRequest', 'Practitioner', 'Group',
+            'Location',
+            'Patient',
+            'Encounter',
+            'Observation',
+            'Condition',
+            'AllergyIntolerance',
+            'MedicationRequest',
+            'Practitioner',
+            'Group',
           ].map((type) => ({
             type,
             interaction: [{ code: 'search-type' }, { code: 'read' }],
@@ -103,7 +110,12 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
 
     try {
       const { entries, failedSources } = await aggregator.fetchWithOffset(
-        state, offset, count, config.sources, fhirClient, sourceMonitor
+        state,
+        offset,
+        count,
+        config.sources,
+        fhirClient,
+        sourceMonitor
       );
       setFailureHeaders(res, failedSources);
       const bundle = {
@@ -136,14 +148,18 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
     try {
       const { entries, totalCount, sourceTokens, hasMore, failedSources } =
         await aggregator.searchAll(
-          `/${resourceType}`, queryParams, config.sources, fhirClient, sourceMonitor
+          `/${resourceType}`,
+          queryParams,
+          config.sources,
+          fhirClient,
+          sourceMonitor
         );
       setFailureHeaders(res, failedSources);
       const token = hasMore ? paginationManager.createToken(sourceTokens) : null;
       const bundle = buildBundle(entries, totalCount, token, getBaseUrl(req), count);
       console.log(
         `[routes] ${resourceType}: ${entries.length} entries, total=${totalCount}, hasMore=${hasMore}` +
-        (failedSources.length > 0 ? `, FAILED: ${failedSources.join(',')}` : '')
+          (failedSources.length > 0 ? `, FAILED: ${failedSources.join(',')}` : '')
       );
       res.json(bundle);
     } catch (err) {

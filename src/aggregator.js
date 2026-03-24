@@ -29,9 +29,7 @@ async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor) 
       })
       .catch((err) => {
         if (sourceMonitor) sourceMonitor.recordFailure(source.id, err);
-        logger.error(
-          `[aggregator] Source ${source.id} (${source.name}) failed: ${err.message}`
-        );
+        logger.error(`[aggregator] Source ${source.id} (${source.name}) failed: ${err.message}`);
         return null;
       })
   );
@@ -100,9 +98,7 @@ async function fetchWithOffset(state, offset, count, sources, fhirClient, source
       .catch((err) => {
         if (sourceMonitor) sourceMonitor.recordFailure(source.id, err);
         failedSources.push(source.id);
-        logger.error(
-          `[aggregator] Offset fetch from ${source.id} failed: ${err.message}`
-        );
+        logger.error(`[aggregator] Offset fetch from ${source.id} failed: ${err.message}`);
         return null;
       });
   });

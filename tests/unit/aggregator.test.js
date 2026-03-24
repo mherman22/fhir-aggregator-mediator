@@ -2,8 +2,12 @@
 
 const { searchAll, fetchWithOffset } = require('../../src/aggregator');
 const {
-  source1Bundle, source2Bundle, source3Bundle, emptyBundle,
-  paginatedBundle1, paginatedBundle2,
+  source1Bundle,
+  source2Bundle,
+  source3Bundle,
+  emptyBundle,
+  paginatedBundle1,
+  paginatedBundle2,
   testSources,
 } = require('../fixtures/bundles');
 
@@ -31,9 +35,15 @@ describe('aggregator', () => {
 
       await searchAll('/Patient', { _count: '20' }, testSources, mockFhirClient, mockMonitor);
       expect(mockFhirClient.search).toHaveBeenCalledTimes(3);
-      expect(mockFhirClient.search).toHaveBeenCalledWith(testSources[0], '/Patient', { _count: '20' });
-      expect(mockFhirClient.search).toHaveBeenCalledWith(testSources[1], '/Patient', { _count: '20' });
-      expect(mockFhirClient.search).toHaveBeenCalledWith(testSources[2], '/Patient', { _count: '20' });
+      expect(mockFhirClient.search).toHaveBeenCalledWith(testSources[0], '/Patient', {
+        _count: '20',
+      });
+      expect(mockFhirClient.search).toHaveBeenCalledWith(testSources[1], '/Patient', {
+        _count: '20',
+      });
+      expect(mockFhirClient.search).toHaveBeenCalledWith(testSources[2], '/Patient', {
+        _count: '20',
+      });
     });
 
     it('merges entries from all sources', async () => {
@@ -50,8 +60,8 @@ describe('aggregator', () => {
 
     it('deduplicates resources with same resourceType/id', async () => {
       mockFhirClient.search
-        .mockResolvedValueOnce(source1Bundle)   // has pr1, loc1
-        .mockResolvedValueOnce(source2Bundle)   // also has pr1, loc1
+        .mockResolvedValueOnce(source1Bundle) // has pr1, loc1
+        .mockResolvedValueOnce(source2Bundle) // also has pr1, loc1
         .mockResolvedValueOnce(emptyBundle);
 
       const result = await searchAll('/Patient', {}, testSources, mockFhirClient, mockMonitor);
@@ -121,8 +131,8 @@ describe('aggregator', () => {
 
     it('uses deduped count as total when all fit in one page', async () => {
       mockFhirClient.search
-        .mockResolvedValueOnce(source1Bundle)   // total: 3
-        .mockResolvedValueOnce(source2Bundle)   // total: 3 (2 dupes)
+        .mockResolvedValueOnce(source1Bundle) // total: 3
+        .mockResolvedValueOnce(source2Bundle) // total: 3 (2 dupes)
         .mockResolvedValueOnce(emptyBundle);
 
       const result = await searchAll('/Patient', {}, testSources, mockFhirClient, mockMonitor);
@@ -179,7 +189,7 @@ describe('aggregator', () => {
 
     it('deduplicates results', async () => {
       mockFhirClient.fetchUrl
-        .mockResolvedValueOnce(source1Bundle)  // has pr1
+        .mockResolvedValueOnce(source1Bundle) // has pr1
         .mockResolvedValueOnce(source2Bundle); // also has pr1
 
       const result = await fetchWithOffset(state, 0, 20, testSources, mockFhirClient, mockMonitor);

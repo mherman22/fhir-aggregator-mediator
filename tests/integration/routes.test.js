@@ -5,7 +5,14 @@ const supertest = require('supertest');
 const createRouter = require('../../src/routes');
 const PaginationManager = require('../../src/pagination');
 const SourceMonitor = require('../../src/source-monitor');
-const { testConfig, source1Bundle, source2Bundle, emptyBundle, paginatedBundle1, paginatedBundle2 } = require('../fixtures/bundles');
+const {
+  testConfig,
+  source1Bundle,
+  source2Bundle,
+  emptyBundle,
+  paginatedBundle1,
+  paginatedBundle2,
+} = require('../fixtures/bundles');
 
 describe('routes', () => {
   let app;
@@ -22,7 +29,12 @@ describe('routes', () => {
     sourceMonitor = new SourceMonitor();
     // Pre-populate source monitor status
     testConfig.sources.forEach((s) => {
-      sourceMonitor.status[s.id] = { status: 'UP', name: s.name, lastError: null, lastChecked: new Date().toISOString() };
+      sourceMonitor.status[s.id] = {
+        status: 'UP',
+        name: s.name,
+        lastError: null,
+        lastChecked: new Date().toISOString(),
+      };
     });
 
     const router = createRouter(testConfig, paginationManager, mockFhirClient, sourceMonitor);

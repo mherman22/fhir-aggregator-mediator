@@ -77,9 +77,7 @@ describe('FhirClient', () => {
     it('throws on 500 server error', async () => {
       nock('http://test-server:8080').get('/fhir').reply(500, 'Internal Server Error');
 
-      await expect(
-        client.fetchUrl(source, 'http://test-server:8080/fhir')
-      ).rejects.toThrow();
+      await expect(client.fetchUrl(source, 'http://test-server:8080/fhir')).rejects.toThrow();
     });
   });
 });

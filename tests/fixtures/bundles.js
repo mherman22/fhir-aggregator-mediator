@@ -45,9 +45,27 @@ const paginatedBundle2 = makeBundle(
 );
 
 const testSources = [
-  { id: 'src1', name: 'Source 1', baseUrl: 'http://src1:8080/fhir', username: 'admin', password: 'pass' },
-  { id: 'src2', name: 'Source 2', baseUrl: 'http://src2:8080/fhir', username: 'admin', password: 'pass' },
-  { id: 'src3', name: 'Source 3', baseUrl: 'http://src3:8080/fhir', username: 'admin', password: 'pass' },
+  {
+    id: 'src1',
+    name: 'Source 1',
+    baseUrl: 'http://src1:8080/fhir',
+    username: 'admin',
+    password: 'pass',
+  },
+  {
+    id: 'src2',
+    name: 'Source 2',
+    baseUrl: 'http://src2:8080/fhir',
+    username: 'admin',
+    password: 'pass',
+  },
+  {
+    id: 'src3',
+    name: 'Source 3',
+    baseUrl: 'http://src3:8080/fhir',
+    username: 'admin',
+    password: 'pass',
+  },
 ];
 
 const testConfig = {
@@ -58,10 +76,19 @@ const testConfig = {
 
 module.exports = {
   makeBundle,
-  patient1, patient2, patient3,
-  practitioner1, practitioner2,
-  location1, location2,
-  source1Bundle, source2Bundle, source3Bundle, emptyBundle,
-  paginatedBundle1, paginatedBundle2,
-  testSources, testConfig,
+  patient1,
+  patient2,
+  patient3,
+  practitioner1,
+  practitioner2,
+  location1,
+  location2,
+  source1Bundle,
+  source2Bundle,
+  source3Bundle,
+  emptyBundle,
+  paginatedBundle1,
+  paginatedBundle2,
+  testSources,
+  testConfig,
 };

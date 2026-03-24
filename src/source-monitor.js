@@ -69,9 +69,7 @@ class SourceMonitor {
   recordFailure(sourceId, err) {
     const isAuth = err.response && (err.response.status === 401 || err.response.status === 403);
     const status = isAuth ? 'AUTH_FAILED' : 'DOWN';
-    const message = isAuth
-      ? `Authentication failed (HTTP ${err.response.status})`
-      : err.message;
+    const message = isAuth ? `Authentication failed (HTTP ${err.response.status})` : err.message;
 
     if (this.status[sourceId]) {
       this.status[sourceId].status = status;
