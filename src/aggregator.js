@@ -67,6 +67,12 @@ async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor) 
 
   const dedupedEntries = deduplicate(entries);
   const hasMore = Object.keys(sourceTokens).length > 0;
+  // When all results fit in one page, use the deduped count (accurate).
+  // When paginated, use the raw total — we can't know the true deduped total
+  // without fetching all pages. This may cause fhir-data-pipes to create more
+  // segments than needed; empty tail segments produce "Invalid bundle submitted"
+  // errors at the sink but don't affect data correctness.
+  // See: https://github.com/google/fhir-data-pipes/issues/XXXX
   const adjustedTotal = hasMore ? totalCount : dedupedEntries.length;
 
   return {

@@ -270,7 +270,7 @@ tests/
 
 ## Known Issues
 
-- **Empty tail pages**: When resources are heavily deduplicated (e.g., Locations cloned across all instances), the raw total from sources overestimates the actual unique count. This causes fhir-data-pipes to create more pagination segments than needed. Empty segments may produce `"Invalid bundle submitted"` errors at the sink. The data still syncs correctly — only the tail pages fail.
+- **Empty tail pages**: When resources are heavily deduplicated (e.g., Locations cloned across all instances), the raw total from sources overestimates the actual unique count. This causes fhir-data-pipes to create more pagination segments than needed. Empty segments produce `"Invalid bundle submitted"` errors at the sink. **Data still syncs correctly** — only the empty tail pages error. This is a fhir-data-pipes issue: the pipeline should handle empty search results gracefully rather than submitting empty transaction bundles.
 
 ## License
 
