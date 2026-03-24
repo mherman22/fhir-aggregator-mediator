@@ -1,0 +1,44 @@
+{
+  "urn": "urn:mediator:fhir-aggregator",
+  "version": "1.0.0",
+  "name": "FHIR Aggregator",
+  "description": "Aggregates FHIR R4 search results from multiple iSantePlus instances into a single endpoint for the data pipeline",
+  "defaultChannelConfig": [
+    {
+      "methods": ["GET"],
+      "type": "http",
+      "authType": "private",
+      "status": "enabled",
+      "name": "FHIR Aggregator",
+      "urlPattern": "^/aggregated-fhir.*$",
+      "routes": [
+        {
+          "type": "http",
+          "status": "enabled",
+          "forwardAuthHeader": false,
+          "name": "FHIR Aggregator Route",
+          "secured": false,
+          "host": "fhir-aggregator",
+          "port": 3000,
+          "path": "",
+          "pathTransform": "s/\\/aggregated-fhir/\\/fhir/g",
+          "primary": true
+        }
+      ],
+      "allow": ["shr-pipeline"],
+      "priority": 1
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "FHIR Aggregator Endpoint",
+      "host": "fhir-aggregator",
+      "path": "/fhir",
+      "port": 3000,
+      "primary": true,
+      "forwardAuthHeader": false,
+      "status": "enabled",
+      "type": "http"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "app": {
+    "port": 3000
+  },
+  "mediator": {
+    "api": {
+      "username": "root@openhim.org",
+      "password": "instant101",
+      "apiURL": "https://openhim-core:8080",
+      "trustSelfSigned": true,
+      "urn": "urn:mediator:fhir-aggregator"
+    }
+  },
+  "sources": [
+    {
+      "id": "isanteplus",
+      "name": "iSantePlus HUEH",
+      "baseUrl": "http://isanteplus:8080/openmrs/ws/fhir2/R4",
+      "username": "admin",
+      "password": "Admin123"
+    },
+    {
+      "id": "isanteplus2",
+      "name": "iSantePlus La Paix",
+      "baseUrl": "http://isanteplus2:8080/openmrs/ws/fhir2/R4",
+      "username": "admin",
+      "password": "Admin123"
+    },
+    {
+      "id": "isanteplus3",
+      "name": "iSantePlus OFATMA",
+      "baseUrl": "http://isanteplus3:8080/openmrs/ws/fhir2/R4",
+      "username": "admin",
+      "password": "Admin123"
+    },
+    {
+      "id": "isanteplus4",
+      "name": "iSantePlus FSC",
+      "baseUrl": "http://isanteplus4:8080/openmrs/ws/fhir2/R4",
+      "username": "admin",
+      "password": "Admin123"
+    }
+  ],
+  "pagination": {
+    "cacheMaxSize": 1000,
+    "cacheTtlMs": 3600000
+  }
+}

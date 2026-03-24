@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  fhir-aggregator:
+    image: fhir-aggregator-mediator:latest
+    configs:
+      - source: aggregator_config
+        target: /app/config/config.json
+      - source: aggregator_mediator
+        target: /app/config/mediator.json
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+    networks:
+      - openhim
+      - isanteplus
+
+configs:
+  aggregator_config:
+    file: ./config/config.json
+    name: aggregator_config
+    labels:
+      name: aggregator_config
+  aggregator_mediator:
+    file: ./config/mediator.json
+    name: aggregator_mediator
+    labels:
+      name: aggregator_mediator
+
+networks:
+  openhim:
+    name: openhim_public
+    external: true
+  isanteplus:
+    name: isanteplus_public
+    external: true
