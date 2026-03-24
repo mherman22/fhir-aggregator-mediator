@@ -3,7 +3,7 @@
 const express = require('express');
 const aggregator = require('./aggregator');
 
-function buildBundle(entries, totalCount, paginationToken, baseUrl) {
+function buildBundle(entries, totalCount, paginationToken, baseUrl, count) {
   const bundle = {
     resourceType: 'Bundle',
     type: 'searchset',
@@ -13,9 +13,13 @@ function buildBundle(entries, totalCount, paginationToken, baseUrl) {
   };
 
   if (paginationToken) {
+    // Build next link in the format fhir-data-pipes expects:
+    // <fhirServerUrl>?_getpages=<token>&_getpagesoffset=<count>&_count=<count>
+    // fhir-data-pipes extracts _getpages and builds its own offset URLs
+    const fhirBase = baseUrl.split('?')[0].replace(/\/[^/]+$/, '');
     bundle.link.push({
       relation: 'next',
-      url: `${baseUrl.split('?')[0].replace(/\/[^/]+$/, '')}?_getpages=${paginationToken}`,
+      url: `${fhirBase}?_getpages=${paginationToken}&_getpagesoffset=${count || 20}&_count=${count || 20}&_bundletype=searchset`,
     });
   }
 
@@ -29,6 +33,7 @@ function getBaseUrl(req) {
 function createRouter(config, paginationManager, fhirClient) {
   const router = express.Router();
 
+  // /fhir/metadata
   router.get('/fhir/metadata', (req, res) => {
     res.json({
       resourceType: 'CapabilityStatement',
@@ -59,7 +64,8 @@ function createRouter(config, paginationManager, fhirClient) {
     });
   });
 
-  // /fhir?_getpages=<token> — pagination continuation
+  // /fhir?_getpages=<token>&_getpagesoffset=N&_count=M — offset-based pagination
+  // fhir-data-pipes constructs these URLs to fetch pages in parallel
   router.get('/fhir', async (req, res) => {
     if (!req.query._getpages) {
       return res.status(400).json({
@@ -75,6 +81,9 @@ function createRouter(config, paginationManager, fhirClient) {
     }
 
     const token = req.query._getpages;
+    const offset = parseInt(req.query._getpagesoffset || '0', 10);
+    const count = parseInt(req.query._count || '20', 10);
+
     const state = paginationManager.getState(token);
     if (!state) {
       return res.status(410).json({
@@ -90,13 +99,20 @@ function createRouter(config, paginationManager, fhirClient) {
     }
 
     try {
-      const { entries, totalCount, nextPages } = await aggregator.fetchNextPages(
+      const { entries } = await aggregator.fetchWithOffset(
         state,
+        offset,
+        count,
         config.sources,
         fhirClient
       );
-      const newToken = paginationManager.createToken(nextPages);
-      const bundle = buildBundle(entries, totalCount, newToken, getBaseUrl(req));
+      // Return entries without a next link — fhir-data-pipes manages its own offsets
+      const bundle = {
+        resourceType: 'Bundle',
+        type: 'searchset',
+        entry: entries,
+        link: [{ relation: 'self', url: getBaseUrl(req) }],
+      };
       res.json(bundle);
     } catch (err) {
       console.error('[routes] Pagination error:', err.message);
@@ -111,6 +127,7 @@ function createRouter(config, paginationManager, fhirClient) {
   router.get('/fhir/:resourceType', async (req, res) => {
     const { resourceType } = req.params;
     const queryParams = { ...req.query };
+    const count = parseInt(queryParams._count || '20', 10);
 
     console.log(
       `[routes] Search ${resourceType} from ${config.sources.length} sources, params:`,
@@ -118,16 +135,16 @@ function createRouter(config, paginationManager, fhirClient) {
     );
 
     try {
-      const { entries, totalCount, nextPages } = await aggregator.searchAll(
+      const { entries, totalCount, sourceTokens, hasMore } = await aggregator.searchAll(
         `/${resourceType}`,
         queryParams,
         config.sources,
         fhirClient
       );
-      const token = paginationManager.createToken(nextPages);
-      const bundle = buildBundle(entries, totalCount, token, getBaseUrl(req));
+      const token = hasMore ? paginationManager.createToken(sourceTokens) : null;
+      const bundle = buildBundle(entries, totalCount, token, getBaseUrl(req), count);
       console.log(
-        `[routes] Returning ${entries.length} entries, total=${totalCount}, hasMore=${!!token}`
+        `[routes] Returning ${entries.length} entries, total=${totalCount}, hasMore=${hasMore}`
       );
       res.json(bundle);
     } catch (err) {
