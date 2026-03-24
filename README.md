@@ -1,26 +1,36 @@
 # FHIR Aggregator Mediator
 
-An [OpenHIM](https://openhim.org/) mediator that aggregates FHIR R4 search results from multiple [iSantePlus](https://isanteplus.com/) (OpenMRS) instances into a single endpoint. Built for use with [google/fhir-data-pipes](https://github.com/google/fhir-data-pipes) to sync data from multiple EMR instances to a shared FHIR store.
+An [OpenHIM](https://openhim.org/) mediator that aggregates FHIR R4 search results from multiple FHIR servers into a single endpoint. Designed for use with [google/fhir-data-pipes](https://github.com/google/fhir-data-pipes) to sync data from multiple sources to a shared FHIR store through a single pipeline.
 
 ## Problem
 
-google/fhir-data-pipes supports a single `fhirServerUrl` as its data source. In deployments with multiple iSantePlus instances (e.g., one per facility), you'd need to run a separate pipeline per instance. This mediator presents all instances as a single FHIR endpoint.
+google/fhir-data-pipes supports a single `fhirServerUrl` as its data source. In deployments with multiple FHIR servers (e.g., one EMR per facility), you'd need to run a separate pipeline instance per server. This mediator presents all servers as a single FHIR endpoint.
+
+## Compatible Sources
+
+The mediator works with **any FHIR R4 server** that returns standard search Bundles:
+
+- **OpenMRS** with the [FHIR2 module](https://wiki.openmrs.org/display/projects/FHIR+Module) (including iSantePlus)
+- **HAPI FHIR** servers
+- **Any FHIR R4 compliant server** that supports `_getpages` pagination
+
+Sources can be mixed — you can aggregate an OpenMRS instance, a HAPI FHIR server, and any other FHIR R4 server in the same configuration.
 
 ## How It Works
 
 ```
                         ┌─────────────────┐
-                        │  iSantePlus 1   │
-                        │  (HUEH)         │
+                        │  FHIR Server 1  │
+                        │  (Facility A)   │
 ┌──────────────┐        ├─────────────────┤        ┌──────────────┐
-│  fhir-data-  │  GET   │  iSantePlus 2   │  PUT   │              │
-│  pipes       │──────> │  (La Paix)      │──────> │  HAPI FHIR   │
+│  fhir-data-  │  GET   │  FHIR Server 2  │  PUT   │              │
+│  pipes       │──────> │  (Facility B)   │──────> │  HAPI FHIR   │
 │  pipeline    │        ├─────────────────┤        │  (SHR)       │
-│              │        │  iSantePlus 3   │        │              │
-└──────────────┘        │  (OFATMA)       │        └──────────────┘
+│              │        │  FHIR Server 3  │        │              │
+└──────────────┘        │  (Facility C)   │        └──────────────┘
        │                ├─────────────────┤               ▲
-       │                │  iSantePlus 4   │               │
-       │                │  (FSC)          │               │
+       │                │  FHIR Server N  │               │
+       │                │  (Facility ...)  │               │
        │                └─────────────────┘               │
        │                        ▲                         │
        │                        │                         │
@@ -33,15 +43,15 @@ google/fhir-data-pipes supports a single `fhirServerUrl` as its data source. In 
 │  3. Merges & deduplicates results    │                  │
 │  4. Handles offset-based pagination  │──────────────────┘
 │  5. Returns unified Bundle           │   (pipeline writes
-│                                      │    to SHR via OpenHIM)
+│                                      │    to sink FHIR store)
 └──────────────────────────────────────┘
 ```
 
 1. Pipeline sends a FHIR search to the aggregator (e.g., `GET /fhir/Patient?_count=100`)
-2. Aggregator fans out the request to all configured iSantePlus instances in parallel
+2. Aggregator fans out the request to all configured sources in parallel
 3. Responses are merged into a single Bundle with deduplication by resource ID
 4. Pipeline uses offset-based pagination (`_getpages` + `_getpagesoffset`) to fetch all pages
-5. Pipeline writes the aggregated data to HAPI FHIR (SHR) through OpenHIM
+5. Pipeline writes the aggregated data to the sink FHIR store
 
 ## Quick Start
 
@@ -61,38 +71,45 @@ docker stack deploy -c docker-compose.yml fhir-aggregator
 ### Verify
 
 ```bash
-# Health check
+# Health check — shows per-source status
 curl http://localhost:3000/health
 
 # FHIR metadata
 curl http://localhost:3000/fhir/metadata
 
-# Search patients across all instances
+# Search patients across all sources
 curl http://localhost:3000/fhir/Patient?_count=20
 ```
 
 ## Configuration
 
-All configuration is in `config/config.json`:
+All configuration is in `config/config.json`.
 
 ### Sources
 
-Add or remove iSantePlus instances in the `sources` array — no code changes required:
+Add or remove FHIR servers in the `sources` array — no code changes required:
 
 ```json
 {
   "sources": [
     {
-      "id": "isanteplus",
-      "name": "iSantePlus HUEH",
-      "baseUrl": "http://isanteplus:8080/openmrs/ws/fhir2/R4",
+      "id": "facility-a",
+      "name": "Facility A (OpenMRS)",
+      "baseUrl": "http://openmrs-a:8080/openmrs/ws/fhir2/R4",
       "username": "admin",
       "password": "Admin123"
     },
     {
-      "id": "new-facility",
-      "name": "iSantePlus New Facility",
-      "baseUrl": "http://isanteplus5:8080/openmrs/ws/fhir2/R4",
+      "id": "facility-b",
+      "name": "Facility B (HAPI FHIR)",
+      "baseUrl": "http://hapi-fhir-b:8080/fhir",
+      "username": "",
+      "password": ""
+    },
+    {
+      "id": "facility-c",
+      "name": "Facility C (OpenMRS)",
+      "baseUrl": "http://openmrs-c:8080/openmrs/ws/fhir2/R4",
       "username": "admin",
       "password": "Admin123"
     }
@@ -100,9 +117,11 @@ Add or remove iSantePlus instances in the `sources` array — no code changes re
 }
 ```
 
+Leave `username` and `password` empty for sources that don't require authentication.
+
 ### OpenHIM Registration
 
-The mediator registers with OpenHIM on startup using the `mediator.api` config. It creates a channel at `/aggregated-fhir` that routes to the mediator.
+The mediator registers with OpenHIM on startup and creates a channel at `/aggregated-fhir`. This is optional — the mediator works standalone at `http://localhost:3000/fhir` without OpenHIM.
 
 ```json
 {
@@ -130,8 +149,8 @@ Pagination state (per-source `_getpages` tokens) is stored in an in-memory LRU c
 }
 ```
 
-- `cacheMaxSize`: Maximum number of pagination tokens to cache (default: 1000)
-- `cacheTtlMs`: Token expiry in milliseconds (default: 1 hour)
+- `cacheMaxSize`: Maximum concurrent pagination sessions (default: 1000)
+- `cacheTtlMs`: Token expiry in milliseconds (default: 1 hour). Set this longer than your longest pipeline run.
 
 ## Pipeline Integration
 
@@ -144,7 +163,7 @@ fhirdata:
   fhirServerPassword: ""
 ```
 
-The aggregator handles authentication to each iSantePlus instance internally.
+The aggregator handles authentication to each source internally — the pipeline doesn't need credentials.
 
 ## API
 
@@ -154,7 +173,7 @@ Returns a synthetic CapabilityStatement listing supported resource types.
 
 ### `GET /fhir/:resourceType?_count=N&_since=...`
 
-Searches all configured sources in parallel, merges results, deduplicates by resource ID, and returns a FHIR Bundle. Supports all standard FHIR search parameters — they are passed through to each source.
+Searches all configured sources in parallel, merges results, deduplicates by resource ID, and returns a FHIR Bundle. All query parameters are passed through to each source.
 
 If results span multiple pages, the Bundle includes a `next` link with a `_getpages` token.
 
@@ -164,31 +183,89 @@ Offset-based pagination. The token maps to per-source `_getpages` tokens stored 
 
 ### `GET /health`
 
-Returns mediator status and configured sources.
+Returns per-source health status:
+
+```json
+{
+  "status": "UP",
+  "sources": [
+    { "id": "facility-a", "status": "UP", "name": "Facility A", "lastError": null, "lastChecked": "..." },
+    { "id": "facility-b", "status": "DOWN", "name": "Facility B", "lastError": "ECONNREFUSED", "lastChecked": "..." }
+  ]
+}
+```
+
+Returns HTTP 200 when all sources are UP, HTTP 503 when any source is DOWN or AUTH_FAILED.
+
+## Source Health Monitoring
+
+### Startup Validation
+
+On startup, the mediator validates credentials for every configured source by hitting `/metadata`. If any source returns 401/403, the mediator **exits immediately** with a clear error message instead of silently serving incomplete data.
+
+### Per-Request Tracking
+
+When a source fails during a request, the response includes headers indicating which sources were unavailable:
+
+```
+X-Aggregator-Sources-Failed: facility-b,facility-c
+X-Aggregator-Sources-Failed-Count: 2
+```
+
+This allows monitoring systems to detect degraded operation.
 
 ## Deduplication
 
-Resources are deduplicated by `resourceType/id`. This handles the common case where multiple iSantePlus instances are cloned from the same database template and share identical Practitioner, Location, and other reference data.
+Resources are deduplicated by `resourceType/id`. This handles the common case where multiple EMR instances are cloned from the same database template and share identical Practitioner, Location, and other reference data.
 
-Resources with unique IDs across instances (Patients, Encounters, Observations) pass through without deduplication.
+Resources with unique IDs across instances (Patients, Encounters, Observations created after deployment) pass through without deduplication.
 
 ## Error Handling
 
-- If a source is down or times out, the aggregator logs a warning and returns results from the remaining sources. The pipeline gets partial data rather than failing entirely.
-- Expired pagination tokens return HTTP 410 Gone. The pipeline will fail and retry on the next scheduled run.
+| Scenario | Behavior |
+|----------|----------|
+| Source down during request | Warning logged, results from remaining sources returned, `X-Aggregator-Sources-Failed` header set |
+| Source auth fails on startup | Mediator exits with `FATAL: Source validation failed` |
+| Source auth fails during request | Source marked as `AUTH_FAILED` in health, remaining sources still serve data |
+| Pagination token expired | HTTP 410 Gone returned, pipeline retries on next schedule |
+| All sources down | Empty Bundle returned |
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests (45 tests, ~98% coverage)
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Lint
+npm run lint
+
+# Auto-fix formatting
+npm run format
+```
 
 ## Architecture
 
 ```
 src/
-  index.js          # Express server + OpenHIM registration
-  routes.js         # Request routing, Bundle construction
-  aggregator.js     # Fan-out, merge, deduplication, offset pagination
-  pagination.js     # LRU cache for pagination state
-  fhir-client.js    # HTTP client with Basic Auth for upstream sources
+  index.js            # Express server, startup validation, OpenHIM registration
+  routes.js           # Request routing, Bundle construction
+  aggregator.js       # Fan-out, merge, deduplication, offset pagination
+  pagination.js       # LRU cache for pagination state tokens
+  fhir-client.js      # HTTP client with Basic Auth for upstream sources
+  source-monitor.js   # Startup validation, per-request health tracking
 config/
-  config.json       # Runtime config (sources, OpenHIM, pagination)
-  mediator.json     # OpenHIM mediator registration metadata
+  config.json         # Runtime config (sources, OpenHIM, pagination)
+  mediator.json       # OpenHIM mediator registration metadata
+tests/
+  unit/               # Unit tests (aggregator, pagination, source-monitor, fhir-client)
+  integration/        # Route tests via supertest
+  fixtures/           # Reusable FHIR Bundles and mock sources
 ```
 
 ## Known Issues

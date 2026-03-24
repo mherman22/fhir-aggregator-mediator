@@ -1,7 +1,7 @@
 {
   "name": "fhir-aggregator-mediator",
   "version": "1.0.0",
-  "description": "OpenHIM mediator that aggregates FHIR R4 search results from multiple iSantePlus instances",
+  "description": "OpenHIM mediator that aggregates FHIR R4 search results from multiple FHIR servers into a single endpoint",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
