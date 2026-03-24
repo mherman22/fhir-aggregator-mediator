@@ -53,7 +53,8 @@ async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor) 
     entries.push(...(bundle.entry || []));
     totalCount += bundle.total || (bundle.entry || []).length;
 
-    const nextLink = (bundle.link || []).find((l) => l.relation === 'next');
+    const links = Array.isArray(bundle.link) ? bundle.link : [];
+    const nextLink = links.find((l) => l.relation === 'next');
     if (nextLink) {
       const token = extractGetpagesToken(nextLink.url);
       if (token) {
