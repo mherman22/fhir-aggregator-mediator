@@ -37,17 +37,39 @@ app.get('/health', (req, res) => {
 const port = config.app.port || 3000;
 let server;
 
+const MAX_RETRIES = 30;
+const RETRY_INTERVAL_MS = 10000; // 10 seconds
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function start() {
   console.log(
     `Validating ${config.sources.length} sources:`,
     config.sources.map((s) => `${s.id} (${s.name})`).join(', ')
   );
 
-  try {
-    await sourceMonitor.validateAll(config.sources, fhirClient);
-    console.log('All sources validated successfully');
-  } catch (err) {
-    console.error(`FATAL: ${err.message}`);
+  // Retry source validation — upstream services (e.g. iSantePlus) may take
+  // 10-15 minutes to boot after a fresh deployment
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await sourceMonitor.validateAll(config.sources, fhirClient);
+      console.log('All sources validated successfully');
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err;
+      console.warn(
+        `Attempt ${attempt}/${MAX_RETRIES}: ${err.message.split('\n')[0]}. Retrying in ${RETRY_INTERVAL_MS / 1000}s...`
+      );
+      await sleep(RETRY_INTERVAL_MS);
+    }
+  }
+
+  if (lastError) {
+    console.error(`FATAL: Failed after ${MAX_RETRIES} attempts: ${lastError.message}`);
     console.error('Fix source credentials in config/config.json and restart');
     process.exit(1);
   }
