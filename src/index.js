@@ -37,8 +37,8 @@ app.get('/health', (req, res) => {
 const port = config.app.port || 3000;
 let server;
 
-const MAX_RETRIES = 30;
-const RETRY_INTERVAL_MS = 10000; // 10 seconds
+const MAX_RETRIES = 90;
+const RETRY_INTERVAL_MS = 10000; // 10 seconds (90 x 10s = 15 min)
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
