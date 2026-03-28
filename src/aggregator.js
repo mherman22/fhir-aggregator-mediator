@@ -68,25 +68,35 @@ async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor) 
 
   const dedupedEntries = deduplicate(entries);
   const hasMore = Object.keys(sourceTokens).length > 0;
-  // Per the FHIR R4 spec, Bundle.total "SHALL only be provided if the total
-  // for all pages is accurately calculated."  When aggregating multiple sources,
-  // the raw sum of per-source totals overestimates the unique count because
-  // duplicate resources (Practitioner, Location, etc.) are shared across
-  // cloned EMR instances.
+  // When aggregating multiple sources the raw sum of per-source totals
+  // overestimates the unique count because duplicate resources (Practitioner,
+  // Location, etc.) are shared across cloned EMR instances.
   //
   // When all results fit in a single page the deduped count is exact.
-  // When paginated, we estimate the true total by applying the deduplication
-  // ratio observed on this first page:
+  // When paginated, we approximate the true total by applying the dedup ratio
+  // observed on this first page:
   //   adjustedTotal ≈ rawTotal × (dedupedEntries / rawEntries)
-  // This prevents downstream consumers (e.g. fhir-data-pipes) from creating
-  // more pagination segments than actually contain data.
+  //
+  // This is a best-effort estimate — the FHIR R4 spec says Bundle.total
+  // "SHALL only be provided if the value is accurately calculated."  A slight
+  // over- or under-estimate is acceptable here because the alternative (raw
+  // sum) causes downstream consumers like fhir-data-pipes to create far more
+  // pagination segments than actually contain data.
+  //
+  // If no entries were returned on this page (rawEntryCount === 0) we have no
+  // dedup signal, so we fall back to the deduped entry count (0) rather than
+  // passing through the inflated raw total.
   let adjustedTotal;
   if (!hasMore) {
     adjustedTotal = dedupedEntries.length;
   } else {
     const rawEntryCount = entries.length;
-    const dedupRatio = rawEntryCount > 0 ? dedupedEntries.length / rawEntryCount : 1;
-    adjustedTotal = Math.max(Math.ceil(totalCount * dedupRatio), dedupedEntries.length);
+    if (rawEntryCount === 0) {
+      adjustedTotal = dedupedEntries.length;
+    } else {
+      const dedupRatio = dedupedEntries.length / rawEntryCount;
+      adjustedTotal = Math.max(Math.ceil(totalCount * dedupRatio), dedupedEntries.length);
+    }
   }
 
   return {

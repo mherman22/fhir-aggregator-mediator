@@ -272,13 +272,13 @@ tests/
 
 When aggregating paginated results from multiple FHIR servers, the naive approach of summing each source's `Bundle.total` overestimates the number of unique resources — cloned EMR instances often share identical Practitioner, Location, and other reference data.
 
-Per the FHIR R4 specification, `Bundle.total` **SHALL only be provided when the value is accurately calculated**. To honour this, the mediator applies the deduplication ratio observed on the first page of results to estimate the true total:
+Per the FHIR R4 specification, `Bundle.total` **SHALL only be provided when the value is accurately calculated**. Since the mediator cannot know the exact deduplicated total without fetching every page, it applies a best-effort approximation using the deduplication ratio observed on the first page of results:
 
 ```
 adjustedTotal ≈ rawTotal × (dedupedEntries / rawEntries)
 ```
 
-This prevents downstream consumers such as [fhir-data-pipes](https://github.com/google/fhir-data-pipes) from creating more pagination segments than actually contain data.
+This estimate is significantly more accurate than the raw sum and prevents downstream consumers such as [fhir-data-pipes](https://github.com/google/fhir-data-pipes) from creating more pagination segments than actually contain data. In practice, the deduplication ratio on the first page is a reliable proxy for the overall ratio because shared reference data (Practitioner, Location, etc.) appears consistently across pages.
 
 ## License
 
