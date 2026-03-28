@@ -68,13 +68,26 @@ async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor) 
 
   const dedupedEntries = deduplicate(entries);
   const hasMore = Object.keys(sourceTokens).length > 0;
-  // When all results fit in one page, use the deduped count (accurate).
-  // When paginated, use the raw total — we can't know the true deduped total
-  // without fetching all pages. This may cause fhir-data-pipes to create more
-  // segments than needed; empty tail segments produce "Invalid bundle submitted"
-  // errors at the sink but don't affect data correctness.
-  // See: https://github.com/google/fhir-data-pipes/issues/XXXX
-  const adjustedTotal = hasMore ? totalCount : dedupedEntries.length;
+  // Per the FHIR R4 spec, Bundle.total "SHALL only be provided if the total
+  // for all pages is accurately calculated."  When aggregating multiple sources,
+  // the raw sum of per-source totals overestimates the unique count because
+  // duplicate resources (Practitioner, Location, etc.) are shared across
+  // cloned EMR instances.
+  //
+  // When all results fit in a single page the deduped count is exact.
+  // When paginated, we estimate the true total by applying the deduplication
+  // ratio observed on this first page:
+  //   adjustedTotal ≈ rawTotal × (dedupedEntries / rawEntries)
+  // This prevents downstream consumers (e.g. fhir-data-pipes) from creating
+  // more pagination segments than actually contain data.
+  let adjustedTotal;
+  if (!hasMore) {
+    adjustedTotal = dedupedEntries.length;
+  } else {
+    const rawEntryCount = entries.length;
+    const dedupRatio = rawEntryCount > 0 ? dedupedEntries.length / rawEntryCount : 1;
+    adjustedTotal = Math.max(Math.ceil(totalCount * dedupRatio), dedupedEntries.length);
+  }
 
   return {
     entries: dedupedEntries,
