@@ -17,28 +17,28 @@
       "name": "iSantePlus HUEH",
       "baseUrl": "http://isanteplus:8080/openmrs/ws/fhir2/R4",
       "username": "admin",
-      "password": "Admin123"
+      "password": "CHANGE_ME"
     },
     {
       "id": "isanteplus2",
       "name": "iSantePlus La Paix",
       "baseUrl": "http://isanteplus2:8080/openmrs/ws/fhir2/R4",
       "username": "admin",
-      "password": "Admin123"
+      "password": "CHANGE_ME"
     },
     {
       "id": "isanteplus3",
       "name": "iSantePlus OFATMA",
       "baseUrl": "http://isanteplus3:8080/openmrs/ws/fhir2/R4",
       "username": "admin",
-      "password": "Admin123"
+      "password": "CHANGE_ME"
     },
     {
       "id": "isanteplus4",
       "name": "iSantePlus FSC",
       "baseUrl": "http://isanteplus4:8080/openmrs/ws/fhir2/R4",
       "username": "admin",
-      "password": "Admin123"
+      "password": "CHANGE_ME"
     }
   ],
   "pagination": {
@@ -47,6 +47,7 @@
   },
   "performance": {
     "timeoutMs": 30000,
-    "maxSocketsPerSource": 5
+    "maxSocketsPerSource": 5,
+    "rejectUnauthorized": true
   }
 }

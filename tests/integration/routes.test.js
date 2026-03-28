@@ -61,6 +61,11 @@ describe('routes', () => {
       const res = await supertest(app).get('/fhir/metadata').expect(200);
       expect(res.body.implementation.description).toContain('3');
     });
+
+    it('returns application/fhir+json Content-Type', async () => {
+      const res = await supertest(app).get('/fhir/metadata').expect(200);
+      expect(res.headers['content-type']).toMatch(/application\/fhir\+json/);
+    });
   });
 
   describe('GET /fhir/:resourceType', () => {
@@ -108,6 +113,53 @@ describe('routes', () => {
       const res = await supertest(app).get('/fhir/Patient').expect(500);
       expect(res.body.resourceType).toBe('OperationOutcome');
     });
+
+    it('rejects invalid resource types', async () => {
+      const res = await supertest(app).get('/fhir/InvalidType').expect(400);
+      expect(res.body.resourceType).toBe('OperationOutcome');
+      expect(res.body.issue[0].code).toBe('not-supported');
+    });
+
+    it('rejects path traversal attempts', async () => {
+      const res = await supertest(app).get('/fhir/..%2Fadmin').expect(400);
+      expect(res.body.resourceType).toBe('OperationOutcome');
+    });
+
+    it('returns application/fhir+json Content-Type', async () => {
+      mockFhirClient.search.mockResolvedValue(source1Bundle);
+      const res = await supertest(app).get('/fhir/Patient').expect(200);
+      expect(res.headers['content-type']).toMatch(/application\/fhir\+json/);
+    });
+
+    it('caps _count at MAX_COUNT (500)', async () => {
+      mockFhirClient.search.mockResolvedValue(emptyBundle);
+      await supertest(app).get('/fhir/Patient?_count=9999').expect(200);
+      // The _count param forwarded to sources should be capped at 500
+      expect(mockFhirClient.search).toHaveBeenCalledWith(
+        expect.anything(),
+        '/Patient',
+        expect.objectContaining({ _count: '500' })
+      );
+    });
+
+    it('defaults negative _count to 20', async () => {
+      mockFhirClient.search.mockResolvedValue(emptyBundle);
+      await supertest(app).get('/fhir/Patient?_count=-5').expect(200);
+      expect(mockFhirClient.search).toHaveBeenCalledWith(
+        expect.anything(),
+        '/Patient',
+        expect.objectContaining({ _count: '20' })
+      );
+    });
+
+    it('does not leak internal error details in diagnostics', async () => {
+      mockFhirClient.search.mockImplementation(() => {
+        throw new Error('ECONNREFUSED http://internal-server:8080/fhir');
+      });
+      const res = await supertest(app).get('/fhir/Patient').expect(500);
+      expect(res.body.issue[0].diagnostics).toBe('Internal server error');
+      expect(res.body.issue[0].diagnostics).not.toContain('ECONNREFUSED');
+    });
   });
 
   describe('GET /fhir?_getpages=TOKEN', () => {
@@ -135,6 +187,23 @@ describe('routes', () => {
 
       expect(res.body.resourceType).toBe('Bundle');
       expect(res.body.entry.length).toBeGreaterThan(0);
+    });
+
+    it('returns application/fhir+json Content-Type for pagination', async () => {
+      const res = await supertest(app).get('/fhir?_getpages=nonexistent').expect(410);
+      expect(res.headers['content-type']).toMatch(/application\/fhir\+json/);
+    });
+
+    it('does not leak internal error details in pagination errors', async () => {
+      const state = { src1: { token: 'abc', baseUrl: 'http://src1:8080/fhir' } };
+      const token = paginationManager.createToken(state);
+      mockFhirClient.fetchUrl.mockImplementation(() => {
+        throw new Error('ECONNREFUSED http://internal:8080');
+      });
+      const res = await supertest(app)
+        .get(`/fhir?_getpages=${token}&_getpagesoffset=0&_count=20`)
+        .expect(500);
+      expect(res.body.issue[0].diagnostics).toBe('Internal server error');
     });
   });
 });

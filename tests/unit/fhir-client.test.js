@@ -23,6 +23,14 @@ describe('FhirClient', () => {
     password: 'secret',
   };
 
+  const noAuthSource = {
+    id: 'noauth',
+    name: 'No Auth',
+    baseUrl: 'http://test-server:8080/fhir',
+    username: '',
+    password: '',
+  };
+
   describe('search', () => {
     it('sends GET with correct URL, auth, and params', async () => {
       const scope = nock('http://test-server:8080')
@@ -58,6 +66,19 @@ describe('FhirClient', () => {
 
       await expect(client.search(source, '/Patient', {})).rejects.toThrow('ECONNREFUSED');
     });
+
+    it('does not send auth header when username is empty', async () => {
+      const scope = nock('http://test-server:8080')
+        .get('/fhir/Patient')
+        .reply(200, function () {
+          // Verify no Authorization header was sent
+          expect(this.req.headers.authorization).toBeUndefined();
+          return { resourceType: 'Bundle', entry: [] };
+        });
+
+      await client.search(noAuthSource, '/Patient', {});
+      scope.done();
+    });
   });
 
   describe('fetchUrl', () => {
@@ -78,6 +99,32 @@ describe('FhirClient', () => {
       nock('http://test-server:8080').get('/fhir').reply(500, 'Internal Server Error');
 
       await expect(client.fetchUrl(source, 'http://test-server:8080/fhir')).rejects.toThrow();
+    });
+
+    it('does not send auth header when username is empty', async () => {
+      const scope = nock('http://test-server:8080')
+        .get('/fhir')
+        .reply(200, function () {
+          expect(this.req.headers.authorization).toBeUndefined();
+          return { resourceType: 'Bundle', entry: [] };
+        });
+
+      await client.fetchUrl(noAuthSource, 'http://test-server:8080/fhir');
+      scope.done();
+    });
+  });
+
+  describe('constructor', () => {
+    it('enables TLS verification by default', () => {
+      const c = new FhirClient({});
+      expect(c.httpsAgent.options.rejectUnauthorized).toBe(true);
+      c.destroy();
+    });
+
+    it('disables TLS verification when rejectUnauthorized is false', () => {
+      const c = new FhirClient({ rejectUnauthorized: false });
+      expect(c.httpsAgent.options.rejectUnauthorized).toBe(false);
+      c.destroy();
     });
   });
 });
