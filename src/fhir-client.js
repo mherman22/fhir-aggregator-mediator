@@ -4,6 +4,10 @@ const axios = require('axios');
 const http = require('http');
 const https = require('https');
 
+function hasAuth(source) {
+  return typeof source.username === 'string' && source.username.length > 0;
+}
+
 class FhirClient {
   constructor(config = {}) {
     this.timeout = config.timeout || 30000;
@@ -17,12 +21,16 @@ class FhirClient {
       maxFreeSockets: Math.ceil(maxSockets / 2),
       timeout: this.timeout,
     });
+
+    // TLS verification is on by default; set rejectUnauthorized: false only when
+    // the caller explicitly opts in (e.g. for self-signed certs in dev/test).
+    const rejectUnauthorized = config.rejectUnauthorized !== false;
     this.httpsAgent = new https.Agent({
       keepAlive: true,
       maxSockets,
       maxFreeSockets: Math.ceil(maxSockets / 2),
       timeout: this.timeout,
-      rejectUnauthorized: false,
+      rejectUnauthorized,
     });
   }
 
@@ -30,7 +38,7 @@ class FhirClient {
     const url = `${source.baseUrl}${path}`;
     const response = await axios.get(url, {
       params: queryParams,
-      auth: source.username ? { username: source.username, password: source.password } : undefined,
+      auth: hasAuth(source) ? { username: source.username, password: source.password } : undefined,
       timeout: this.timeout,
       headers: { Accept: 'application/fhir+json' },
       httpAgent: this.httpAgent,
@@ -41,7 +49,7 @@ class FhirClient {
 
   async fetchUrl(source, absoluteUrl) {
     const response = await axios.get(absoluteUrl, {
-      auth: source.username ? { username: source.username, password: source.password } : undefined,
+      auth: hasAuth(source) ? { username: source.username, password: source.password } : undefined,
       timeout: this.timeout,
       headers: { Accept: 'application/fhir+json' },
       httpAgent: this.httpAgent,

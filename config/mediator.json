@@ -2,7 +2,7 @@
   "urn": "urn:mediator:fhir-aggregator",
   "version": "1.0.0",
   "name": "FHIR Aggregator",
-  "description": "Aggregates FHIR R4 search results from multiple iSantePlus instances into a single endpoint for the data pipeline",
+  "description": "Aggregates FHIR R4 search results from multiple FHIR servers into a single endpoint for the data pipeline",
   "defaultChannelConfig": [
     {
       "methods": ["GET"],

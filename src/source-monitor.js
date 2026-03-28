@@ -15,35 +15,38 @@ class SourceMonitor {
    * Throws if any source fails authentication — fail fast.
    */
   async validateAll(sources, fhirClient) {
-    const errors = [];
+    const results = await Promise.allSettled(
+      sources.map(async (source) => {
+        try {
+          await fhirClient.search(source, '/metadata', {});
+          this.status[source.id] = {
+            status: 'UP',
+            name: source.name,
+            lastError: null,
+            lastChecked: new Date().toISOString(),
+          };
+          console.log(`[source-monitor] ${source.id} (${source.name}): OK`);
+        } catch (err) {
+          const isAuth =
+            err.response && (err.response.status === 401 || err.response.status === 403);
+          const status = isAuth ? 'AUTH_FAILED' : 'DOWN';
+          const message = isAuth
+            ? `Authentication failed (HTTP ${err.response.status})`
+            : err.message;
 
-    for (const source of sources) {
-      try {
-        await fhirClient.search(source, '/metadata', {});
-        this.status[source.id] = {
-          status: 'UP',
-          name: source.name,
-          lastError: null,
-          lastChecked: new Date().toISOString(),
-        };
-        console.log(`[source-monitor] ${source.id} (${source.name}): OK`);
-      } catch (err) {
-        const isAuth = err.response && (err.response.status === 401 || err.response.status === 403);
-        const status = isAuth ? 'AUTH_FAILED' : 'DOWN';
-        const message = isAuth
-          ? `Authentication failed (HTTP ${err.response.status})`
-          : err.message;
+          this.status[source.id] = {
+            status,
+            name: source.name,
+            lastError: message,
+            lastChecked: new Date().toISOString(),
+          };
+          console.error(`[source-monitor] ${source.id} (${source.name}): ${message}`);
+          throw new Error(`${source.id} (${source.name}): ${message}`);
+        }
+      })
+    );
 
-        this.status[source.id] = {
-          status,
-          name: source.name,
-          lastError: message,
-          lastChecked: new Date().toISOString(),
-        };
-        errors.push(`${source.id} (${source.name}): ${message}`);
-        console.error(`[source-monitor] ${source.id} (${source.name}): ${message}`);
-      }
-    }
+    const errors = results.filter((r) => r.status === 'rejected').map((r) => r.reason.message);
 
     if (errors.length > 0) {
       const msg = `Source validation failed:\n  ${errors.join('\n  ')}`;

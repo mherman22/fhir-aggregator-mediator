@@ -25,6 +25,21 @@ const paginationManager = new PaginationManager(config.pagination);
 const sourceMonitor = new SourceMonitor();
 const router = createRouter(config, paginationManager, fhirClient, sourceMonitor);
 
+// Request-level timeout — prevents slow upstreams from hanging Express indefinitely
+const REQUEST_TIMEOUT_MS = (config.performance && config.performance.requestTimeoutMs) || 120000;
+app.use((req, res, next) => {
+  res.setTimeout(REQUEST_TIMEOUT_MS, () => {
+    res
+      .status(504)
+      .set('Content-Type', 'application/fhir+json; charset=utf-8')
+      .json({
+        resourceType: 'OperationOutcome',
+        issue: [{ severity: 'error', code: 'timeout', diagnostics: 'Request timed out' }],
+      });
+  });
+  next();
+});
+
 app.use(router);
 
 // Health endpoint — shows per-source status
