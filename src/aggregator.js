@@ -12,8 +12,8 @@ function getDeduplicationKey(entry, config) {
   const resourceType = entry.resource.resourceType;
   const strategy = config?.deduplication?.[resourceType] || config?.deduplication?.default;
   if (strategy?.strategy === 'identifier' && strategy.system) {
-    const id = entry.resource.identifier?.find((i) => i.system === strategy.system);
-    if (id) return `${resourceType}/${id.value}`;
+    const matchingIdentifier = entry.resource.identifier?.find((i) => i.system === strategy.system);
+    if (matchingIdentifier) return `${resourceType}/${matchingIdentifier.value}`;
   }
   return `${resourceType}/${entry.resource.id}`;
 }
