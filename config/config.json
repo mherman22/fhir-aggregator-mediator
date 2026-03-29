@@ -45,6 +45,10 @@
     "cacheMaxSize": 1000,
     "cacheTtlMs": 3600000
   },
+  "deduplication": {
+    "Patient": { "strategy": "identifier", "system": "http://national-cr.org/master-id" },
+    "default": { "strategy": "resourceId" }
+  },
   "performance": {
     "timeoutMs": 30000,
     "maxSocketsPerSource": 5,
