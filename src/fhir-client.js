@@ -12,7 +12,7 @@ class FhirClient {
   constructor(config = {}) {
     this.timeout = config.timeout || 30000;
     this.maxContentLength = config.maxContentLength || 50 * 1024 * 1024; // 50 MB
-    this.maxRedirects = config.maxRedirects != null ? config.maxRedirects : 5;
+    this.maxRedirects = config.maxRedirects !== undefined ? config.maxRedirects : 5;
 
     // Connection pooling — reuse TCP connections across requests
     // Prevents creating/destroying thousands of connections during a pipeline run
