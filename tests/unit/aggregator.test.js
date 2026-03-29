@@ -1,6 +1,6 @@
 'use strict';
 
-const { searchAll, fetchWithOffset } = require('../../src/aggregator');
+const { searchAll, fetchWithOffset, getDeduplicationKey } = require('../../src/aggregator');
 const {
   makeBundle,
   source1Bundle,
@@ -227,6 +227,287 @@ describe('aggregator', () => {
         .filter((e) => e.resource.resourceType === 'Practitioner')
         .map((e) => e.resource.id);
       expect(prIds).toEqual(['pr1']);
+    });
+  });
+
+  describe('getDeduplicationKey', () => {
+    it('returns resourceType/id when no config is provided', () => {
+      const entry = { resource: { resourceType: 'Patient', id: 'p1' } };
+      expect(getDeduplicationKey(entry)).toBe('Patient/p1');
+    });
+
+    it('returns resourceType/id when config has no deduplication section', () => {
+      const entry = { resource: { resourceType: 'Patient', id: 'p1' } };
+      expect(getDeduplicationKey(entry, { sources: [] })).toBe('Patient/p1');
+    });
+
+    it('uses default strategy when resourceType has no specific config', () => {
+      const entry = { resource: { resourceType: 'Location', id: 'loc1' } };
+      const config = { deduplication: { default: { strategy: 'resourceId' } } };
+      expect(getDeduplicationKey(entry, config)).toBe('Location/loc1');
+    });
+
+    it('keys on business identifier when strategy is identifier', () => {
+      const entry = {
+        resource: {
+          resourceType: 'Patient',
+          id: 'p1',
+          identifier: [
+            { system: 'http://hospital-a.org/mrn', value: 'MRN-111' },
+            { system: 'http://national-cr.org/master-id', value: 'MASTER-001' },
+          ],
+        },
+      };
+      const config = {
+        deduplication: {
+          Patient: { strategy: 'identifier', system: 'http://national-cr.org/master-id' },
+          default: { strategy: 'resourceId' },
+        },
+      };
+      expect(getDeduplicationKey(entry, config)).toBe('Patient/MASTER-001');
+    });
+
+    it('falls back to resourceType/id when identifier system not found', () => {
+      const entry = {
+        resource: {
+          resourceType: 'Patient',
+          id: 'p1',
+          identifier: [{ system: 'http://hospital-a.org/mrn', value: 'MRN-111' }],
+        },
+      };
+      const config = {
+        deduplication: {
+          Patient: { strategy: 'identifier', system: 'http://national-cr.org/master-id' },
+        },
+      };
+      expect(getDeduplicationKey(entry, config)).toBe('Patient/p1');
+    });
+
+    it('falls back to resourceType/id when resource has no identifiers', () => {
+      const entry = { resource: { resourceType: 'Patient', id: 'p1' } };
+      const config = {
+        deduplication: {
+          Patient: { strategy: 'identifier', system: 'http://national-cr.org/master-id' },
+        },
+      };
+      expect(getDeduplicationKey(entry, config)).toBe('Patient/p1');
+    });
+
+    it('uses resourceType-specific config over default', () => {
+      const entry = {
+        resource: {
+          resourceType: 'Patient',
+          id: 'p1',
+          identifier: [{ system: 'http://cr.org/id', value: 'CR-99' }],
+        },
+      };
+      const config = {
+        deduplication: {
+          Patient: { strategy: 'identifier', system: 'http://cr.org/id' },
+          default: { strategy: 'resourceId' },
+        },
+      };
+      expect(getDeduplicationKey(entry, config)).toBe('Patient/CR-99');
+    });
+  });
+
+  describe('identifier-based deduplication in searchAll', () => {
+    it('deduplicates cross-facility patients by business identifier', async () => {
+      const hospitalABundle = makeBundle(
+        [
+          {
+            resourceType: 'Patient',
+            id: 'abc',
+            identifier: [{ system: 'http://cr.org/master', value: 'MASTER-1' }],
+            name: [{ family: 'Smith' }],
+          },
+        ],
+        1
+      );
+      const hospitalBBundle = makeBundle(
+        [
+          {
+            resourceType: 'Patient',
+            id: 'xyz',
+            identifier: [{ system: 'http://cr.org/master', value: 'MASTER-1' }],
+            name: [{ family: 'Smith' }],
+          },
+        ],
+        1
+      );
+
+      mockFhirClient.search
+        .mockResolvedValueOnce(hospitalABundle)
+        .mockResolvedValueOnce(hospitalBBundle)
+        .mockResolvedValueOnce(emptyBundle);
+
+      const config = {
+        deduplication: {
+          Patient: { strategy: 'identifier', system: 'http://cr.org/master' },
+          default: { strategy: 'resourceId' },
+        },
+      };
+
+      const result = await searchAll(
+        '/Patient',
+        {},
+        testSources,
+        mockFhirClient,
+        mockMonitor,
+        config
+      );
+      // Two different IDs (abc, xyz) but same master identifier MASTER-1 → deduplicated to 1
+      expect(result.entries).toHaveLength(1);
+      expect(result.entries[0].resource.id).toBe('abc');
+    });
+
+    it('keeps cross-facility patients with different business identifiers', async () => {
+      const hospitalABundle = makeBundle(
+        [
+          {
+            resourceType: 'Patient',
+            id: 'abc',
+            identifier: [{ system: 'http://cr.org/master', value: 'MASTER-1' }],
+          },
+        ],
+        1
+      );
+      const hospitalBBundle = makeBundle(
+        [
+          {
+            resourceType: 'Patient',
+            id: 'xyz',
+            identifier: [{ system: 'http://cr.org/master', value: 'MASTER-2' }],
+          },
+        ],
+        1
+      );
+
+      mockFhirClient.search
+        .mockResolvedValueOnce(hospitalABundle)
+        .mockResolvedValueOnce(hospitalBBundle)
+        .mockResolvedValueOnce(emptyBundle);
+
+      const config = {
+        deduplication: {
+          Patient: { strategy: 'identifier', system: 'http://cr.org/master' },
+        },
+      };
+
+      const result = await searchAll(
+        '/Patient',
+        {},
+        testSources,
+        mockFhirClient,
+        mockMonitor,
+        config
+      );
+      expect(result.entries).toHaveLength(2);
+    });
+
+    it('applies identifier dedup only to configured resourceTypes', async () => {
+      // Patient uses identifier strategy; Practitioner uses default (resourceId)
+      const bundleA = makeBundle(
+        [
+          {
+            resourceType: 'Patient',
+            id: 'abc',
+            identifier: [{ system: 'http://cr.org/master', value: 'MASTER-1' }],
+          },
+          { resourceType: 'Practitioner', id: 'pr1', name: [{ family: 'Dr. A' }] },
+        ],
+        2
+      );
+      const bundleB = makeBundle(
+        [
+          {
+            resourceType: 'Patient',
+            id: 'xyz',
+            identifier: [{ system: 'http://cr.org/master', value: 'MASTER-1' }],
+          },
+          { resourceType: 'Practitioner', id: 'pr1', name: [{ family: 'Dr. A' }] },
+        ],
+        2
+      );
+
+      mockFhirClient.search
+        .mockResolvedValueOnce(bundleA)
+        .mockResolvedValueOnce(bundleB)
+        .mockResolvedValueOnce(emptyBundle);
+
+      const config = {
+        deduplication: {
+          Patient: { strategy: 'identifier', system: 'http://cr.org/master' },
+          default: { strategy: 'resourceId' },
+        },
+      };
+
+      const result = await searchAll(
+        '/Patient',
+        {},
+        testSources,
+        mockFhirClient,
+        mockMonitor,
+        config
+      );
+      // Patient MASTER-1 deduped (2 → 1), Practitioner pr1 deduped by resourceId (2 → 1)
+      expect(result.entries).toHaveLength(2);
+      const patientEntries = result.entries.filter((e) => e.resource.resourceType === 'Patient');
+      const practitionerEntries = result.entries.filter(
+        (e) => e.resource.resourceType === 'Practitioner'
+      );
+      expect(patientEntries).toHaveLength(1);
+      expect(practitionerEntries).toHaveLength(1);
+    });
+  });
+
+  describe('identifier-based deduplication in fetchWithOffset', () => {
+    const state = {
+      src1: { token: 'abc123', baseUrl: 'http://src1:8080/fhir' },
+      src2: { token: 'def456', baseUrl: 'http://src2:8080/fhir' },
+    };
+
+    it('deduplicates cross-facility patients by business identifier', async () => {
+      const bundleA = makeBundle(
+        [
+          {
+            resourceType: 'Patient',
+            id: 'p-hosp-a',
+            identifier: [{ system: 'http://cr.org/master', value: 'MASTER-42' }],
+          },
+        ],
+        1
+      );
+      const bundleB = makeBundle(
+        [
+          {
+            resourceType: 'Patient',
+            id: 'p-hosp-b',
+            identifier: [{ system: 'http://cr.org/master', value: 'MASTER-42' }],
+          },
+        ],
+        1
+      );
+
+      mockFhirClient.fetchUrl.mockResolvedValueOnce(bundleA).mockResolvedValueOnce(bundleB);
+
+      const config = {
+        deduplication: {
+          Patient: { strategy: 'identifier', system: 'http://cr.org/master' },
+        },
+      };
+
+      const result = await fetchWithOffset(
+        state,
+        0,
+        20,
+        testSources,
+        mockFhirClient,
+        mockMonitor,
+        config
+      );
+      expect(result.entries).toHaveLength(1);
+      expect(result.entries[0].resource.id).toBe('p-hosp-a');
     });
   });
 });

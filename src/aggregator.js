@@ -8,18 +8,28 @@ function extractGetpagesToken(nextUrl) {
   return parsed.searchParams.get('_getpages');
 }
 
-function deduplicate(entries) {
+function getDeduplicationKey(entry, config) {
+  const resourceType = entry.resource.resourceType;
+  const strategy = config?.deduplication?.[resourceType] || config?.deduplication?.default;
+  if (strategy?.strategy === 'identifier' && strategy.system) {
+    const matchingIdentifier = entry.resource.identifier?.find((i) => i.system === strategy.system);
+    if (matchingIdentifier) return `${resourceType}/${matchingIdentifier.value}`;
+  }
+  return `${resourceType}/${entry.resource.id}`;
+}
+
+function deduplicate(entries, config) {
   const seen = new Set();
   return entries.filter((entry) => {
     if (!entry.resource || !entry.resource.id) return true;
-    const key = `${entry.resource.resourceType}/${entry.resource.id}`;
+    const key = getDeduplicationKey(entry, config);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor) {
+async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor, config) {
   const promises = sources.map((source) =>
     fhirClient
       .search(source, path, queryParams)
@@ -66,7 +76,7 @@ async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor) 
     }
   }
 
-  const dedupedEntries = deduplicate(entries);
+  const dedupedEntries = deduplicate(entries, config);
   const hasMore = Object.keys(sourceTokens).length > 0;
   // When aggregating multiple sources the raw sum of per-source totals
   // overestimates the unique count because duplicate resources (Practitioner,
@@ -108,7 +118,7 @@ async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor) 
   };
 }
 
-async function fetchWithOffset(state, offset, count, sources, fhirClient, sourceMonitor) {
+async function fetchWithOffset(state, offset, count, sources, fhirClient, sourceMonitor, config) {
   const activeSources = sources.filter((s) => state[s.id]);
   const failedSources = [];
 
@@ -141,7 +151,7 @@ async function fetchWithOffset(state, offset, count, sources, fhirClient, source
     entries.push(...(bundle.entry || []));
   }
 
-  return { entries: deduplicate(entries), failedSources };
+  return { entries: deduplicate(entries, config), failedSources };
 }
 
-module.exports = { searchAll, fetchWithOffset };
+module.exports = { searchAll, fetchWithOffset, getDeduplicationKey };
