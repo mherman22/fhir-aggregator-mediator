@@ -11,6 +11,8 @@ function hasAuth(source) {
 class FhirClient {
   constructor(config = {}) {
     this.timeout = config.timeout || 30000;
+    this.maxContentLength = config.maxContentLength || 50 * 1024 * 1024; // 50 MB
+    this.maxRedirects = config.maxRedirects != null ? config.maxRedirects : 5;
 
     // Connection pooling — reuse TCP connections across requests
     // Prevents creating/destroying thousands of connections during a pipeline run
@@ -40,6 +42,9 @@ class FhirClient {
       params: queryParams,
       auth: hasAuth(source) ? { username: source.username, password: source.password } : undefined,
       timeout: this.timeout,
+      maxContentLength: this.maxContentLength,
+      maxBodyLength: this.maxContentLength,
+      maxRedirects: this.maxRedirects,
       headers: { Accept: 'application/fhir+json' },
       httpAgent: this.httpAgent,
       httpsAgent: this.httpsAgent,
@@ -51,6 +56,9 @@ class FhirClient {
     const response = await axios.get(absoluteUrl, {
       auth: hasAuth(source) ? { username: source.username, password: source.password } : undefined,
       timeout: this.timeout,
+      maxContentLength: this.maxContentLength,
+      maxBodyLength: this.maxContentLength,
+      maxRedirects: this.maxRedirects,
       headers: { Accept: 'application/fhir+json' },
       httpAgent: this.httpAgent,
       httpsAgent: this.httpsAgent,

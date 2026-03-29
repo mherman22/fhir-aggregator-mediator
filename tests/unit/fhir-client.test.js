@@ -126,5 +126,19 @@ describe('FhirClient', () => {
       expect(c.httpsAgent.options.rejectUnauthorized).toBe(false);
       c.destroy();
     });
+
+    it('sets default maxContentLength and maxRedirects', () => {
+      const c = new FhirClient({});
+      expect(c.maxContentLength).toBe(50 * 1024 * 1024);
+      expect(c.maxRedirects).toBe(5);
+      c.destroy();
+    });
+
+    it('allows custom maxContentLength and maxRedirects', () => {
+      const c = new FhirClient({ maxContentLength: 10 * 1024 * 1024, maxRedirects: 0 });
+      expect(c.maxContentLength).toBe(10 * 1024 * 1024);
+      expect(c.maxRedirects).toBe(0);
+      c.destroy();
+    });
   });
 });

@@ -4,8 +4,13 @@ const logger = console;
 
 function extractGetpagesToken(nextUrl) {
   if (!nextUrl) return null;
-  const parsed = new URL(nextUrl);
-  return parsed.searchParams.get('_getpages');
+  try {
+    const parsed = new URL(nextUrl);
+    return parsed.searchParams.get('_getpages');
+  } catch {
+    logger.error(`[aggregator] Failed to parse next-link URL: ${nextUrl}`);
+    return null;
+  }
 }
 
 function getDeduplicationKey(entry, config) {
