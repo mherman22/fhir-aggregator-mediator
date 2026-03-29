@@ -268,9 +268,17 @@ tests/
   fixtures/           # Reusable FHIR Bundles and mock sources
 ```
 
-## Known Issues
+## Deduplication-Aware Pagination Totals
 
-- **Empty tail pages**: When resources are heavily deduplicated (e.g., Locations cloned across all instances), the raw total from sources overestimates the actual unique count. This causes fhir-data-pipes to create more pagination segments than needed. Empty segments produce `"Invalid bundle submitted"` errors at the sink. **Data still syncs correctly** — only the empty tail pages error. This is a fhir-data-pipes issue: the pipeline should handle empty search results gracefully rather than submitting empty transaction bundles.
+When aggregating paginated results from multiple FHIR servers, the naive approach of summing each source's `Bundle.total` overestimates the number of unique resources — cloned EMR instances often share identical Practitioner, Location, and other reference data.
+
+Per the FHIR R4 specification, `Bundle.total` **SHALL only be provided when the value is accurately calculated**. Since the mediator cannot know the exact deduplicated total without fetching every page, it applies a best-effort approximation using the deduplication ratio observed on the first page of results:
+
+```
+adjustedTotal ≈ rawTotal × (dedupedEntries / rawEntries)
+```
+
+This estimate is significantly more accurate than the raw sum and prevents downstream consumers such as [fhir-data-pipes](https://github.com/google/fhir-data-pipes) from creating more pagination segments than actually contain data. In practice, the deduplication ratio on the first page is a reliable proxy for the overall ratio because shared reference data (Practitioner, Location, etc.) appears consistently across pages.
 
 ## License
 

@@ -2,6 +2,7 @@
 
 const { searchAll, fetchWithOffset } = require('../../src/aggregator');
 const {
+  makeBundle,
   source1Bundle,
   source2Bundle,
   source3Bundle,
@@ -140,15 +141,33 @@ describe('aggregator', () => {
       expect(result.totalCount).toBe(result.entries.length);
     });
 
-    it('uses raw total when paginated (dedup total unknown without fetching all pages)', async () => {
+    it('applies dedup ratio to estimate total when paginated', async () => {
       mockFhirClient.search
-        .mockResolvedValueOnce(paginatedBundle1) // total: 100, has next
-        .mockResolvedValueOnce(paginatedBundle2) // total: 100, has next
+        .mockResolvedValueOnce(paginatedBundle1) // total: 100, 2 entries (loc1, loc2), has next
+        .mockResolvedValueOnce(paginatedBundle2) // total: 100, 1 entry  (loc1 — dup), has next
         .mockResolvedValueOnce(emptyBundle);
 
       const result = await searchAll('/Location', {}, testSources, mockFhirClient, mockMonitor);
-      // Raw total = 200 (100 + 100), kept as-is for paginated results
-      expect(result.totalCount).toBe(200);
+      // Raw total = 200, raw entries = 3, deduped entries = 2
+      // Dedup ratio = 2/3, adjusted total = ceil(200 * 2/3) = 134
+      expect(result.totalCount).toBe(134);
+    });
+
+    it('falls back to deduped count when paginated but no entries returned', async () => {
+      // Edge case: sources report totals and next links but return zero entries
+      const emptyWithNext = makeBundle(
+        [],
+        50,
+        'http://src:8080/fhir?_getpages=tok1&_getpagesoffset=20&_count=20'
+      );
+      mockFhirClient.search
+        .mockResolvedValueOnce(emptyWithNext)
+        .mockResolvedValueOnce(emptyBundle)
+        .mockResolvedValueOnce(emptyBundle);
+
+      const result = await searchAll('/Location', {}, testSources, mockFhirClient, mockMonitor);
+      // No entries to compute a dedup ratio — total should fall back to 0
+      expect(result.totalCount).toBe(0);
     });
 
     it('works without sourceMonitor', async () => {
