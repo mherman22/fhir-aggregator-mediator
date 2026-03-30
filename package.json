@@ -15,7 +15,7 @@
     "axios": "^1.7.0",
     "express": "^4.21.0",
     "lru-cache": "^10.4.0",
-    "openhim-mediator-utils": "^0.2.3",
+    "openhim-mediator-utils": "^0.4.0",
     "uuid": "^10.0.0"
   },
   "devDependencies": {

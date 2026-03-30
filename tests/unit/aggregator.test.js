@@ -120,6 +120,21 @@ describe('aggregator', () => {
       expect(result.sourceTokens.src3).toBeUndefined();
     });
 
+    it('handles malformed next-link URLs without crashing', async () => {
+      const malformedBundle = makeBundle([{ resourceType: 'Location', id: 'loc1', name: 'X' }], 50);
+      malformedBundle.link.push({ relation: 'next', url: ':::not-a-valid-url' });
+
+      mockFhirClient.search
+        .mockResolvedValueOnce(malformedBundle)
+        .mockResolvedValueOnce(emptyBundle)
+        .mockResolvedValueOnce(emptyBundle);
+
+      const result = await searchAll('/Location', {}, testSources, mockFhirClient, mockMonitor);
+      expect(result.entries).toHaveLength(1);
+      // Malformed URL should not produce a token
+      expect(result.sourceTokens.src1).toBeUndefined();
+    });
+
     it('returns hasMore=false when no sources have next pages', async () => {
       mockFhirClient.search
         .mockResolvedValueOnce(source1Bundle)

@@ -19,6 +19,16 @@ config.sources.forEach((source) => {
   if (envPass !== undefined) source.password = envPass;
 });
 
+// Support environment variable overrides for OpenHIM mediator API credentials
+if (config.mediator && config.mediator.api) {
+  const ohimUser = process.env.OPENHIM_API_USERNAME;
+  const ohimPass = process.env.OPENHIM_API_PASSWORD;
+  const ohimUrl = process.env.OPENHIM_API_URL;
+  if (ohimUser !== undefined) config.mediator.api.username = ohimUser;
+  if (ohimPass !== undefined) config.mediator.api.password = ohimPass;
+  if (ohimUrl !== undefined) config.mediator.api.apiURL = ohimUrl;
+}
+
 const app = express();
 const fhirClient = new FhirClient(config.performance || {});
 const paginationManager = new PaginationManager(config.pagination);
@@ -113,11 +123,13 @@ function shutdown(signal) {
       fhirClient.destroy();
       process.exit(0);
     });
-    // Force exit after 10 seconds if connections don't drain
+    // Force exit if connections don't drain within request timeout + buffer
+    const shutdownTimeoutMs =
+      ((config.performance && config.performance.requestTimeoutMs) || REQUEST_TIMEOUT_MS) + 5000;
     setTimeout(() => {
       console.error('Forced shutdown after timeout');
       process.exit(1);
-    }, 10000);
+    }, shutdownTimeoutMs);
   } else {
     process.exit(0);
   }
