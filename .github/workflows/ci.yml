@@ -48,5 +48,5 @@ jobs:
         run: |
           docker run -d --name test-mediator fhir-aggregator-mediator:${{ github.sha }}
           sleep 3
-          docker logs test-mediator 2>&1 | grep -qE "FATAL|listening"
+          docker logs test-mediator 2>&1 | grep -q "Validating"
           docker stop test-mediator
