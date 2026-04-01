@@ -494,6 +494,41 @@ npm run lint
 npm run format
 ```
 
+## Releasing
+
+Releases are automated via `release.sh`. One command handles the full cycle: set the release version, tag, bump to the next SNAPSHOT, and push. CI then builds the Docker image, pushes it to GHCR, and creates a GitHub Release.
+
+```bash
+# Patch release (default): 1.1.0-SNAPSHOT → v1.1.0 → 1.1.1-SNAPSHOT
+./release.sh
+
+# Minor release: 1.1.0-SNAPSHOT → v1.1.0 → 1.2.0-SNAPSHOT
+./release.sh minor
+
+# Major release: 1.1.0-SNAPSHOT → v1.1.0 → 2.0.0-SNAPSHOT
+./release.sh major
+```
+
+The script will:
+1. Verify you're on `main` with a clean working tree
+2. Strip `-SNAPSHOT` from the version in `package.json` and commit as `Release vX.Y.Z`
+3. Create an annotated git tag `vX.Y.Z`
+4. Bump `package.json` to the next SNAPSHOT version and commit as `Prepare for next development iteration`
+5. Push both commits and the tag to `origin/main`
+
+CI then automatically:
+- Runs tests
+- Builds and pushes `ghcr.io/mherman22/fhir-aggregator-mediator:X.Y.Z` (plus `:X.Y` and `:latest`)
+- Creates a [GitHub Release](https://github.com/mherman22/fhir-aggregator-mediator/releases) with auto-generated changelog
+
+### Pinning versions in downstream projects
+
+Use a specific version tag in your docker-compose rather than `:latest`:
+
+```yaml
+image: ghcr.io/mherman22/fhir-aggregator-mediator:1.0.0
+```
+
 ## License
 
 MPL-2.0
