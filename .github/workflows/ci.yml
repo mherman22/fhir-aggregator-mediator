@@ -71,12 +71,13 @@ jobs:
         with:
           context: .
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Verify container starts
         run: |
-          docker run -d --name test-mediator ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker run -d --name test-mediator ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           sleep 3
           docker logs test-mediator 2>&1 | grep -q "Validating"
           docker stop test-mediator
