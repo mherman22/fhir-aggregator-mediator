@@ -54,14 +54,16 @@ describe('aggregator', () => {
       expect(result.entries).toHaveLength(6);
     });
 
-    it('sums totals from all sources', async () => {
+    it('adjusts total to match deduped entry count when all fit in one page', async () => {
       mockFhirClient.search
         .mockResolvedValueOnce(source1Bundle) // total: 3
-        .mockResolvedValueOnce(source2Bundle) // total: 3
+        .mockResolvedValueOnce(source2Bundle) // total: 3 (2 dupes: pr1, loc1)
         .mockResolvedValueOnce(emptyBundle); // total: 0
 
       const result = await searchAll('/Patient', {}, testSources, mockFhirClient, mockMonitor);
-      expect(result.totalCount).toBe(6);
+      // Raw total = 6, but after removing duplicate IDs = 4 unique entries
+      // Since all fit in one page (no next link), total matches entry count
+      expect(result.totalCount).toBe(result.entries.length);
     });
 
     it('handles partial source failures gracefully', async () => {

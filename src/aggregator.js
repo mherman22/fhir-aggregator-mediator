@@ -81,9 +81,15 @@ async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor) 
   const uniqueEntries = removeDuplicateIds(entries);
   const hasMore = Object.keys(sourceTokens).length > 0;
 
+  // When all results fit in one page, use the actual entry count as total.
+  // The raw totalCount (sum of all sources) overestimates when duplicates
+  // were removed. If we report total > entries with no next link,
+  // fhir-data-pipes tries to paginate and fails.
+  const adjustedTotal = hasMore ? totalCount : uniqueEntries.length;
+
   return {
     entries: uniqueEntries,
-    totalCount,
+    totalCount: adjustedTotal,
     sourceTokens,
     hasMore,
     failedSources,
