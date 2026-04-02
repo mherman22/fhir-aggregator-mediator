@@ -453,26 +453,7 @@ npm run format
 
 ### Production (each site has its own pipeline)
 
-In production, each facility is a self-contained site with intermittent internet. Each site runs its own pipeline that reads from its own local iSantePlus. Data syncs to the national HIE when internet is available. **No aggregator needed.**
-
-```
-Site A (rural)                    Site B (rural)
-┌──────────────────┐              ┌──────────────────┐
-│ iSantePlus       │              │ iSantePlus       │
-│ Pipeline ────────┤              │ Pipeline ────────┤
-│ Local OpenHIM    │              │ Local OpenHIM    │
-│ Local OpenCR     │              │ Local OpenCR     │
-└────────┬─────────┘              └────────┬─────────┘
-         │ when internet available         │
-         └──────────┬──────────────────────┘
-                    ▼
-          ┌──────────────────┐
-          │ National OpenHIM │
-          │ National OpenCR  │
-          │ SHR Mediator     │
-          │ HAPI FHIR (SHR)  │
-          └──────────────────┘
-```
+In production, each facility is a self-contained site with intermittent internet. Each site runs its own pipeline **No aggregator needed.**
 
 ### Demo/Test (multiple instances on one machine)
 
