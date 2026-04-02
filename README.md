@@ -2,9 +2,11 @@
 
 An [OpenHIM](https://openhim.org/) mediator that aggregates FHIR R4 search results from multiple FHIR servers into a single endpoint. Designed for use with [google/fhir-data-pipes](https://github.com/google/fhir-data-pipes) to sync data from multiple sources to a shared FHIR store through a single pipeline.
 
+> **Note:** This component is intended for **demo/test environments** where multiple EMR instances run on a single machine sharing one data pipeline. In production, each facility runs its own pipeline instance pointing at its own EMR — the aggregator is not needed. See [Production vs Demo Architecture](#production-vs-demo-architecture) below.
+
 ## Problem
 
-google/fhir-data-pipes supports a single `fhirServerUrl` as its data source. In deployments with multiple FHIR servers (e.g., one EMR per facility), you'd need to run a separate pipeline instance per server. This mediator presents all servers as a single FHIR endpoint.
+google/fhir-data-pipes supports a single `fhirServerUrl` as its data source. In **demo/test setups** where multiple EMR instances run on one machine, you'd need to run a separate pipeline instance per server. This mediator presents all servers as a single FHIR endpoint, allowing one pipeline to sync data from all instances.
 
 ## Compatible Sources
 
@@ -446,6 +448,61 @@ npm run lint
 # Auto-fix formatting
 npm run format
 ```
+
+## Production vs Demo Architecture
+
+### Production (each site has its own pipeline)
+
+In production, each facility is a self-contained site with intermittent internet. Each site runs its own pipeline that reads from its own local iSantePlus. Data syncs to the national HIE when internet is available. **No aggregator needed.**
+
+```
+Site A (rural)                    Site B (rural)
+┌──────────────────┐              ┌──────────────────┐
+│ iSantePlus       │              │ iSantePlus       │
+│ Pipeline ────────┤              │ Pipeline ────────┤
+│ Local OpenHIM    │              │ Local OpenHIM    │
+│ Local OpenCR     │              │ Local OpenCR     │
+└────────┬─────────┘              └────────┬─────────┘
+         │ when internet available         │
+         └──────────┬──────────────────────┘
+                    ▼
+          ┌──────────────────┐
+          │ National OpenHIM │
+          │ National OpenCR  │
+          │ SHR Mediator     │
+          │ HAPI FHIR (SHR)  │
+          └──────────────────┘
+```
+
+### Demo/Test (multiple instances on one machine)
+
+In demo/test environments, multiple iSantePlus instances run on a single machine with one shared pipeline. The aggregator presents all instances as one FHIR endpoint.
+
+```
+┌─────────────────────────────────────┐
+│         Single Machine              │
+│                                     │
+│  iSantePlus 1 ──┐                   │
+│                 ├──→ Aggregator     │
+│  iSantePlus 2 ──┘     (:3000)      │
+│                          │          │
+│                       Pipeline      │
+│                          │          │
+│                       OpenHIM       │
+│                       OpenCR        │
+│                       SHR Mediator  │
+│                       HAPI FHIR     │
+└─────────────────────────────────────┘
+```
+
+### When to Use the Aggregator
+
+| Scenario | Aggregator? |
+|----------|-------------|
+| Production: one iSantePlus per site, each with its own pipeline | **No** |
+| Demo/test: multiple iSantePlus on one machine, one pipeline | **Yes** |
+| Development: testing pipeline against multiple data sources | **Yes** |
+| Training: simulating multi-facility setup on a laptop | **Yes** |
 
 ## Releasing
 
