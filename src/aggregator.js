@@ -2,6 +2,24 @@
 
 const logger = console;
 
+/**
+ * Remove duplicate entries that have the same resourceType/id.
+ * This is NOT clinical deduplication (that's OpenCR's job).
+ * This prevents HAPI FHIR from rejecting transaction bundles that
+ * contain the same resource twice — which happens when multiple
+ * sources share cloned reference data (e.g. same Practitioner/Location).
+ */
+function removeDuplicateIds(entries) {
+  const seen = new Set();
+  return entries.filter((entry) => {
+    if (!entry.resource || !entry.resource.id) return true;
+    const key = `${entry.resource.resourceType}/${entry.resource.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function extractGetpagesToken(nextUrl) {
   if (!nextUrl) return null;
   try {
@@ -60,10 +78,11 @@ async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor) 
     }
   }
 
+  const uniqueEntries = removeDuplicateIds(entries);
   const hasMore = Object.keys(sourceTokens).length > 0;
 
   return {
-    entries,
+    entries: uniqueEntries,
     totalCount,
     sourceTokens,
     hasMore,
@@ -104,7 +123,7 @@ async function fetchWithOffset(state, offset, count, sources, fhirClient, source
     entries.push(...(bundle.entry || []));
   }
 
-  return { entries, failedSources };
+  return { entries: removeDuplicateIds(entries), failedSources };
 }
 
 module.exports = { searchAll, fetchWithOffset };

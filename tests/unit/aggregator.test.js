@@ -48,9 +48,10 @@ describe('aggregator', () => {
         .mockResolvedValueOnce(source3Bundle);
 
       const result = await searchAll('/Patient', {}, testSources, mockFhirClient, mockMonitor);
-      // source1: 3 entries, source2: 3 entries, source3: 2 entries = 8 total
-      // No dedup — duplicates (pr1, loc1) are passed through
-      expect(result.entries).toHaveLength(8);
+      // source1: 3 entries (p1, pr1, loc1), source2: 3 entries (p2, pr1, loc1), source3: 2 entries (p3, pr2)
+      // pr1 and loc1 appear twice (cloned DB) — removed by duplicate ID filter
+      // Unique: p1, pr1, loc1, p2, p3, pr2 = 6
+      expect(result.entries).toHaveLength(6);
     });
 
     it('sums totals from all sources', async () => {
@@ -182,17 +183,17 @@ describe('aggregator', () => {
       expect(result.failedSources).toEqual(['src2']);
     });
 
-    it('merges all entries without dedup', async () => {
+    it('removes duplicate resource IDs across sources', async () => {
       mockFhirClient.fetchUrl
         .mockResolvedValueOnce(source1Bundle) // has pr1
         .mockResolvedValueOnce(source2Bundle); // also has pr1
 
       const result = await fetchWithOffset(state, 0, 20, testSources, mockFhirClient, mockMonitor);
-      // Both copies of pr1 are returned — no dedup
+      // pr1 appears in both sources (cloned DB) — only one copy kept
       const prIds = result.entries
         .filter((e) => e.resource.resourceType === 'Practitioner')
         .map((e) => e.resource.id);
-      expect(prIds).toEqual(['pr1', 'pr1']);
+      expect(prIds).toEqual(['pr1']);
     });
   });
 });
