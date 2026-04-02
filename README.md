@@ -40,7 +40,7 @@ Sources can be mixed — you can aggregate an OpenMRS instance, a HAPI FHIR serv
 │                                      │                  │
 │  1. Receives FHIR search request     │                  │
 │  2. Fans out to all sources          │                  │
-│  3. Merges & deduplicates results    │                  │
+│  3. Merges results from all sources  │                  │
 │  4. Handles offset-based pagination  │──────────────────┘
 │  5. Returns unified Bundle           │   (pipeline writes
 │                                      │    to sink FHIR store)
@@ -49,7 +49,7 @@ Sources can be mixed — you can aggregate an OpenMRS instance, a HAPI FHIR serv
 
 1. Pipeline sends a FHIR search to the aggregator (e.g., `GET /fhir/Patient?_count=100`)
 2. Aggregator fans out the request to all configured sources in parallel
-3. Responses are merged into a single Bundle with deduplication by resource ID
+3. Responses are merged into a single Bundle
 4. Pipeline uses offset-based pagination (`_getpages` + `_getpagesoffset`) to fetch all pages
 5. Pipeline writes the aggregated data to the sink FHIR store
 
@@ -221,38 +221,7 @@ The channel configuration is defined in `config/mediator.json`. It maps incoming
 
 If OpenHIM is unreachable at startup the mediator logs a warning and continues running — it does not block.
 
-### Step 4 — Configure Deduplication
-
-The mediator deduplicates resources that appear in more than one source. This is common when EMR instances are cloned from the same database template and share identical Practitioner, Location, and other reference data.
-
-Two strategies are supported:
-
-| Strategy | Key used | Best for |
-|----------|----------|----------|
-| `resourceId` (default) | `{resourceType}/{id}` | Resources with server-assigned IDs that may overlap across cloned instances |
-| `identifier` | `{resourceType}/{identifier.value}` matching a given `system` | Resources with a shared business identifier (e.g. a national patient ID) |
-
-Configure per resource type in `config/config.json`. Any resource type not explicitly listed falls back to `default`:
-
-```json
-{
-  "deduplication": {
-    "Patient": {
-      "strategy": "identifier",
-      "system": "http://national-cr.org/master-id"
-    },
-    "default": {
-      "strategy": "resourceId"
-    }
-  }
-}
-```
-
-In this example:
-- **Patient** resources are deduplicated by a national master patient identifier. Two Patient resources from different facilities with the same `identifier.value` under the system `http://national-cr.org/master-id` are treated as the same patient.
-- **All other resource types** are deduplicated by `resourceType/id`. If two facilities both have a `Practitioner/1`, only one copy appears in the aggregated results.
-
-### Step 5 — Tune Performance Settings
+### Step 4 — Tune Performance Settings
 
 ```json
 {
@@ -283,7 +252,7 @@ There is also a request-level timeout at the Express layer (`requestTimeoutMs`, 
 }
 ```
 
-### Step 6 — Configure Pagination Cache
+### Step 5 — Configure Pagination Cache
 
 Pagination state (per-source `_getpages` tokens) is stored in an in-memory LRU cache:
 
@@ -301,7 +270,7 @@ Pagination state (per-source `_getpages` tokens) is stored in an in-memory LRU c
 | `cacheMaxSize` | `1000` | Maximum concurrent pagination sessions before the oldest is evicted |
 | `cacheTtlMs` | `3600000` | Token expiry in milliseconds (default: 1 hour). Set this longer than your longest pipeline run. |
 
-### Step 7 — Point Your Pipeline at the Aggregator
+### Step 6 — Point Your Pipeline at the Aggregator
 
 Configure the [fhir-data-pipes](https://github.com/google/fhir-data-pipes) pipeline to use the aggregator as its FHIR source in `application.yaml`:
 
@@ -352,10 +321,6 @@ Below is a complete `config/config.json` showing every available option:
     "cacheMaxSize": 1000,
     "cacheTtlMs": 3600000
   },
-  "deduplication": {
-    "Patient": { "strategy": "identifier", "system": "http://national-cr.org/master-id" },
-    "default": { "strategy": "resourceId" }
-  },
   "performance": {
     "timeoutMs": 30000,
     "requestTimeoutMs": 120000,
@@ -389,7 +354,7 @@ Returns a synthetic CapabilityStatement listing all 161 supported FHIR R4 resour
 
 ### `GET /fhir/:resourceType?_count=N&_since=...`
 
-Searches all configured sources in parallel, merges results, deduplicates, and returns a FHIR Bundle. All query parameters are passed through to each source.
+Searches all configured sources in parallel, merges results, and returns a FHIR Bundle. All query parameters are passed through to each source. No deduplication is performed — duplicate resources from different sources are passed through as-is.
 
 - `_count` — page size (default: 20, max: 500)
 - `_since` — passed through for incremental sync
@@ -433,18 +398,6 @@ X-Aggregator-Sources-Failed-Count: 2
 
 This allows monitoring systems to detect degraded operation.
 
-## Deduplication-Aware Pagination Totals
-
-When aggregating paginated results from multiple FHIR servers, the naive approach of summing each source's `Bundle.total` overestimates the number of unique resources — cloned EMR instances often share identical Practitioner, Location, and other reference data.
-
-Per the FHIR R4 specification, `Bundle.total` **SHALL only be provided when the value is accurately calculated**. Since the mediator cannot know the exact deduplicated total without fetching every page, it applies a best-effort approximation using the deduplication ratio observed on the first page of results:
-
-```
-adjustedTotal ≈ rawTotal × (dedupedEntries / rawEntries)
-```
-
-This estimate is significantly more accurate than the raw sum and prevents downstream consumers such as [fhir-data-pipes](https://github.com/google/fhir-data-pipes) from creating more pagination segments than actually contain data. In practice, the deduplication ratio on the first page is a reliable proxy for the overall ratio because shared reference data (Practitioner, Location, etc.) appears consistently across pages.
-
 ## Error Handling
 
 | Scenario | Behavior |
@@ -462,12 +415,12 @@ This estimate is significantly more accurate than the raw sum and prevents downs
 src/
   index.js            # Express server, startup validation, OpenHIM registration
   routes.js           # Request routing, Bundle construction, resource type validation
-  aggregator.js       # Fan-out, merge, deduplication, offset pagination
+  aggregator.js       # Fan-out, merge, offset pagination
   pagination.js       # LRU cache for pagination state tokens
   fhir-client.js      # HTTP client with Basic Auth, connection pooling, timeout
   source-monitor.js   # Startup validation, per-request health tracking
 config/
-  config.json         # Runtime config (sources, deduplication, performance, pagination, OpenHIM)
+  config.json         # Runtime config (sources, performance, pagination, OpenHIM)
   mediator.json       # OpenHIM mediator registration metadata and channel config
 tests/
   unit/               # Unit tests (aggregator, pagination, source-monitor, fhir-client)
@@ -481,7 +434,7 @@ tests/
 # Install dependencies
 npm install
 
-# Run tests (71 tests, ~99% coverage)
+# Run tests (60 tests, ~99% coverage)
 npm test
 
 # Run tests in watch mode
