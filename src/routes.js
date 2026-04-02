@@ -269,8 +269,7 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
         count,
         config.sources,
         fhirClient,
-        sourceMonitor,
-        config
+        sourceMonitor
       );
       setFailureHeaders(res, failedSources);
       const bundle = {
@@ -318,8 +317,7 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
           queryParams,
           config.sources,
           fhirClient,
-          sourceMonitor,
-          config
+          sourceMonitor
         );
       setFailureHeaders(res, failedSources);
       const token = hasMore ? paginationManager.createToken(sourceTokens) : null;
