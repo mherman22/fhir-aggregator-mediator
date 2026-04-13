@@ -72,8 +72,7 @@ async function startWorker() {
         process.exit(0);
       });
       // Force exit if connections don't drain within request timeout + buffer
-      const shutdownTimeoutMs =
-        ((config.performance && config.performance.requestTimeoutMs) || REQUEST_TIMEOUT_MS) + 5000;
+      const shutdownTimeoutMs = REQUEST_TIMEOUT_MS + 5000;
       setTimeout(() => {
         console.error('Forced shutdown after timeout');
         process.exit(1);
