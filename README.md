@@ -272,7 +272,67 @@ Pagination state (per-source `_getpages` tokens) is stored in an in-memory LRU c
 | `cacheMaxSize` | `1000` | Maximum concurrent pagination sessions before the oldest is evicted |
 | `cacheTtlMs` | `3600000` | Token expiry in milliseconds (default: 1 hour). Set this longer than your longest pipeline run. |
 
-### Step 6 — Point Your Pipeline at the Aggregator
+### Step 6 — Enable Clustering (Optional)
+
+By default, the mediator runs as a single Node.js process. For production workloads with CPU-intensive dedup or large fan-out operations, you can enable clustering to fork one worker per CPU core. Each worker runs its own Express server and LRU pagination cache, sharing the same port via the Node.js `cluster` module.
+
+#### Configuration
+
+Add a `cluster` section to `config/config.json`:
+
+```json
+{
+  "cluster": {
+    "enabled": true,
+    "workers": 4
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Set to `true` to fork multiple worker processes |
+| `workers` | `os.cpus().length` | Number of worker processes. Set to `0` or omit to use all available CPU cores. |
+
+#### Environment Variable Overrides
+
+You can also enable clustering via environment variables (these take precedence over `config.json`):
+
+```bash
+# Enable clustering
+export CLUSTER_ENABLED=true
+
+# Optionally set worker count (defaults to CPU count)
+export CLUSTER_WORKERS=4
+```
+
+Docker example:
+
+```bash
+docker run -p 3000:3000 \
+  -e CLUSTER_ENABLED=true \
+  -e CLUSTER_WORKERS=4 \
+  fhir-aggregator-mediator
+```
+
+#### How It Works
+
+- The **primary process** forks worker processes and monitors them. If a worker exits unexpectedly, it is automatically restarted.
+- Each **worker process** runs a full Express server with its own LRU pagination cache, FHIR client, and source monitor.
+- Workers share the same port via the OS kernel (round-robin on Linux, OS-level distribution on macOS/Windows).
+- The in-process pagination cache is per-worker by design. Since each worker can independently re-fetch pages from upstream sources, stateless pagination remains correct even when consecutive requests land on different workers.
+
+#### Alternatives: Running Multiple Replicas
+
+Instead of (or in addition to) Node.js clustering, you can run multiple container replicas behind a load balancer:
+
+- **Docker Swarm**: Set `replicas: N` in `docker-compose.yml`
+- **Kubernetes**: Set `replicas: N` in your Deployment spec
+- **OpenHIM**: Already supports load balancing across multiple mediator instances
+
+This approach is preferred when you need independent memory limits per replica or are already using container orchestration.
+
+### Step 7 — Point Your Pipeline at the Aggregator
 
 Configure the [fhir-data-pipes](https://github.com/google/fhir-data-pipes) pipeline to use the aggregator as its FHIR source in `application.yaml`:
 
@@ -322,6 +382,10 @@ Below is a complete `config/config.json` showing every available option:
   "pagination": {
     "cacheMaxSize": 1000,
     "cacheTtlMs": 3600000
+  },
+  "cluster": {
+    "enabled": false,
+    "workers": 0
   },
   "performance": {
     "timeoutMs": 30000,
@@ -415,17 +479,19 @@ This allows monitoring systems to detect degraded operation.
 
 ```
 src/
-  index.js            # Express server, startup validation, OpenHIM registration
+  index.js            # Entry point — cluster orchestration + worker bootstrap
+  server.js           # Express app factory (shared by all workers)
+  cluster.js          # Cluster manager — forks workers, auto-restarts on exit
   routes.js           # Request routing, Bundle construction, resource type validation
   aggregator.js       # Fan-out, merge, offset pagination
   pagination.js       # LRU cache for pagination state tokens
   fhir-client.js      # HTTP client with Basic Auth, connection pooling, timeout
   source-monitor.js   # Startup validation, per-request health tracking
 config/
-  config.json         # Runtime config (sources, performance, pagination, OpenHIM)
+  config.json         # Runtime config (sources, performance, pagination, cluster, OpenHIM)
   mediator.json       # OpenHIM mediator registration metadata and channel config
 tests/
-  unit/               # Unit tests (aggregator, pagination, source-monitor, fhir-client)
+  unit/               # Unit tests (aggregator, pagination, source-monitor, fhir-client, cluster)
   integration/        # Route tests via supertest
   fixtures/           # Reusable FHIR Bundles and mock sources
 ```
@@ -436,7 +502,7 @@ tests/
 # Install dependencies
 npm install
 
-# Run tests (60 tests, ~99% coverage)
+# Run tests (80 tests, ~95% coverage)
 npm test
 
 # Run tests in watch mode
