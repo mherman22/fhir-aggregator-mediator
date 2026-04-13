@@ -1,6 +1,6 @@
 'use strict';
 
-const logger = console;
+const logger = require('./logger');
 
 /**
  * Remove duplicate entries that have the same resourceType/id.
@@ -26,25 +26,39 @@ function extractGetpagesToken(nextUrl) {
     const parsed = new URL(nextUrl);
     return parsed.searchParams.get('_getpages');
   } catch {
-    logger.error(`[aggregator] Failed to parse next-link URL: ${nextUrl}`);
+    logger.error({ nextUrl }, 'Failed to parse next-link URL');
     return null;
   }
 }
 
-async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor) {
-  const promises = sources.map((source) =>
-    fhirClient
+async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor, circuitBreaker) {
+  const promises = sources.map((source) => {
+    // Circuit breaker: skip sources with open circuits
+    if (circuitBreaker && !circuitBreaker.allowRequest(source.id)) {
+      logger.warn(
+        { sourceId: source.id, sourceName: source.name },
+        'Circuit breaker OPEN — skipping source'
+      );
+      return Promise.resolve(null);
+    }
+
+    return fhirClient
       .search(source, path, queryParams)
       .then((result) => {
         if (sourceMonitor) sourceMonitor.recordSuccess(source.id);
+        if (circuitBreaker) circuitBreaker.recordSuccess(source.id);
         return result;
       })
       .catch((err) => {
         if (sourceMonitor) sourceMonitor.recordFailure(source.id, err);
-        logger.error(`[aggregator] Source ${source.id} (${source.name}) failed: ${err.message}`);
+        if (circuitBreaker) circuitBreaker.recordFailure(source.id);
+        logger.error(
+          { sourceId: source.id, sourceName: source.name, error: err.message },
+          'Source request failed'
+        );
         return null;
-      })
-  );
+      });
+  });
 
   const results = await Promise.all(promises);
 
@@ -96,11 +110,26 @@ async function searchAll(path, queryParams, sources, fhirClient, sourceMonitor) 
   };
 }
 
-async function fetchWithOffset(state, offset, count, sources, fhirClient, sourceMonitor) {
+async function fetchWithOffset(
+  state,
+  offset,
+  count,
+  sources,
+  fhirClient,
+  sourceMonitor,
+  circuitBreaker
+) {
   const activeSources = sources.filter((s) => state[s.id]);
   const failedSources = [];
 
   const promises = activeSources.map((source) => {
+    // Circuit breaker: skip sources with open circuits
+    if (circuitBreaker && !circuitBreaker.allowRequest(source.id)) {
+      logger.warn({ sourceId: source.id }, 'Circuit breaker OPEN — skipping offset fetch');
+      failedSources.push(source.id);
+      return Promise.resolve(null);
+    }
+
     const sourceInfo = state[source.id];
     const fetchUrl =
       `${sourceInfo.baseUrl}?_getpages=${sourceInfo.token}` +
@@ -111,12 +140,14 @@ async function fetchWithOffset(state, offset, count, sources, fhirClient, source
       .fetchUrl(source, fetchUrl)
       .then((result) => {
         if (sourceMonitor) sourceMonitor.recordSuccess(source.id);
+        if (circuitBreaker) circuitBreaker.recordSuccess(source.id);
         return result;
       })
       .catch((err) => {
         if (sourceMonitor) sourceMonitor.recordFailure(source.id, err);
+        if (circuitBreaker) circuitBreaker.recordFailure(source.id);
         failedSources.push(source.id);
-        logger.error(`[aggregator] Offset fetch from ${source.id} failed: ${err.message}`);
+        logger.error({ sourceId: source.id, error: err.message }, 'Offset fetch failed');
         return null;
       });
   });

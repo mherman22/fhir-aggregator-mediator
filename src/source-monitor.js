@@ -1,5 +1,7 @@
 'use strict';
 
+const logger = require('./logger');
+
 /**
  * Tracks per-source health status. Validates credentials on startup
  * and records per-request failures for the health endpoint.
@@ -25,7 +27,7 @@ class SourceMonitor {
             lastError: null,
             lastChecked: new Date().toISOString(),
           };
-          console.log(`[source-monitor] ${source.id} (${source.name}): OK`);
+          logger.info({ sourceId: source.id, sourceName: source.name }, 'Source validation OK');
         } catch (err) {
           const isAuth =
             err.response && (err.response.status === 401 || err.response.status === 403);
@@ -40,7 +42,10 @@ class SourceMonitor {
             lastError: message,
             lastChecked: new Date().toISOString(),
           };
-          console.error(`[source-monitor] ${source.id} (${source.name}): ${message}`);
+          logger.error(
+            { sourceId: source.id, sourceName: source.name, error: message },
+            'Source validation failed'
+          );
           throw new Error(`${source.id} (${source.name}): ${message}`);
         }
       })
@@ -85,11 +90,14 @@ class SourceMonitor {
 
   /**
    * Get health summary for all sources.
+   * Optionally includes circuit breaker state.
    */
-  getHealth() {
+  getHealth(circuitBreaker) {
+    const cbStates = circuitBreaker ? circuitBreaker.getStates() : {};
     const sources = Object.entries(this.status).map(([id, info]) => ({
       id,
       ...info,
+      ...(cbStates[id] ? { circuitBreaker: cbStates[id] } : {}),
     }));
     const allUp = sources.every((s) => s.status === 'UP');
     return {

@@ -1,0 +1,13 @@
+node_modules
+coverage
+.git
+.github
+.env
+*.md
+tests
+docs
+create-issues.sh
+.eslintrc.json
+.prettierrc
+k8s
+load-tests

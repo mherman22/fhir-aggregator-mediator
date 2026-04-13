@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fhir-aggregator
+  labels:
+    app: fhir-aggregator
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fhir-aggregator
+  template:
+    metadata:
+      labels:
+        app: fhir-aggregator
+    spec:
+      terminationGracePeriodSeconds: 130
+      containers:
+        - name: fhir-aggregator
+          image: ghcr.io/mherman22/fhir-aggregator-mediator:latest
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: LOG_LEVEL
+              value: "info"
+            - name: NODE_ENV
+              value: "production"
+          envFrom:
+            - configMapRef:
+                name: fhir-aggregator-config
+            - secretRef:
+                name: fhir-aggregator-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          volumeMounts:
+            - name: config
+              mountPath: /app/config/config.json
+              subPath: config.json
+              readOnly: true
+            - name: config
+              mountPath: /app/config/mediator.json
+              subPath: mediator.json
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: fhir-aggregator-files
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fhir-aggregator
+  labels:
+    app: fhir-aggregator
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: fhir-aggregator
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fhir-aggregator
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fhir-aggregator
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fhir-aggregator
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: fhir-aggregator
