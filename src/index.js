@@ -1,12 +1,11 @@
 'use strict';
 
-const cluster = require('cluster');
-const os = require('os');
 const express = require('express');
 const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const { registerMediator, activateHeartbeat } = require('openhim-mediator-utils');
+const { startCluster } = require('./cluster');
 const FhirClient = require('./fhir-client');
 const PaginationManager = require('./pagination');
 const SourceMonitor = require('./source-monitor');
@@ -30,42 +29,7 @@ try {
   process.exit(1);
 }
 
-// Issue 1: Clustering support
-const ENABLE_CLUSTERING = process.env.CLUSTER_ENABLED === 'true';
-const numWorkers = parseInt(process.env.CLUSTER_WORKERS || String(os.cpus().length), 10);
-
-if (ENABLE_CLUSTERING && cluster.isPrimary) {
-  logger.info({ workers: numWorkers }, 'Starting cluster');
-
-  for (let i = 0; i < numWorkers; i++) {
-    cluster.fork();
-  }
-
-  cluster.on('exit', (worker, code, signal) => {
-    logger.warn(
-      { workerId: worker.id, pid: worker.process.pid, code, signal },
-      'Worker exited, restarting'
-    );
-    cluster.fork();
-  });
-
-  // Graceful shutdown of all workers
-  const shutdownCluster = (signal) => {
-    logger.info({ signal }, 'Shutting down cluster');
-    for (const id in cluster.workers) {
-      cluster.workers[id].process.kill(signal);
-    }
-    setTimeout(() => process.exit(0), 10000);
-  };
-
-  process.on('SIGTERM', () => shutdownCluster('SIGTERM'));
-  process.on('SIGINT', () => shutdownCluster('SIGINT'));
-} else {
-  // Single worker or non-clustered mode
-  startWorker();
-}
-
-function startWorker() {
+async function startWorker() {
   const app = express();
   const fhirClient = new FhirClient(config.performance || {});
   const paginationManager = new PaginationManager(config.pagination);
@@ -223,10 +187,7 @@ function startWorker() {
     isReady = true;
 
     server = app.listen(port, () => {
-      logger.info(
-        { port, workerId: cluster.worker ? cluster.worker.id : 'primary' },
-        'FHIR Aggregator Mediator listening'
-      );
+      logger.info({ port, pid: process.pid }, 'FHIR Aggregator Mediator listening');
 
       registerMediator(config.mediator.api, mediatorConfig, (err) => {
         if (err) {
@@ -266,3 +227,5 @@ function startWorker() {
 
   start();
 }
+
+startCluster(startWorker, config);

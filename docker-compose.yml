@@ -3,6 +3,8 @@ version: "3.9"
 services:
   fhir-aggregator:
     image: fhir-aggregator-mediator:latest
+    environment:
+      - CLUSTER_ENABLED=${CLUSTER_ENABLED:-false}
     configs:
       - source: aggregator_config
         target: /app/config/config.json
