@@ -45,6 +45,10 @@
     "cacheMaxSize": 1000,
     "cacheTtlMs": 3600000
   },
+  "cluster": {
+    "enabled": false,
+    "workers": 0
+  },
   "performance": {
     "timeoutMs": 30000,
     "maxSocketsPerSource": 5,
