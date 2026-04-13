@@ -37,7 +37,14 @@ describe('routes', () => {
       };
     });
 
-    const router = createRouter(testConfig, paginationManager, mockFhirClient, sourceMonitor);
+    const router = createRouter(
+      testConfig,
+      paginationManager,
+      mockFhirClient,
+      sourceMonitor,
+      null,
+      null
+    );
     app = express();
     app.use(router);
   });
@@ -159,6 +166,33 @@ describe('routes', () => {
       const res = await supertest(app).get('/fhir/Patient').expect(500);
       expect(res.body.issue[0].diagnostics).toBe('Internal server error');
       expect(res.body.issue[0].diagnostics).not.toContain('ECONNREFUSED');
+    });
+
+    it('rejects unknown FHIR underscore parameters (Issue 12)', async () => {
+      const res = await supertest(app).get('/fhir/Patient?_malicious=true').expect(400);
+      expect(res.body.resourceType).toBe('OperationOutcome');
+      expect(res.body.issue[0].diagnostics).toContain('Unknown FHIR search parameter');
+    });
+
+    it('allows known FHIR search parameters', async () => {
+      mockFhirClient.search.mockResolvedValue(emptyBundle);
+      const res = await supertest(app).get('/fhir/Patient?_count=10&_since=2024-01-01').expect(200);
+      expect(res.body.resourceType).toBe('Bundle');
+    });
+
+    it('allows resource-specific search parameters (no underscore)', async () => {
+      mockFhirClient.search.mockResolvedValue(emptyBundle);
+      const res = await supertest(app)
+        .get('/fhir/Patient?family=Smith&birthdate=1990-01-01')
+        .expect(200);
+      expect(res.body.resourceType).toBe('Bundle');
+    });
+
+    it('rejects overly long parameter values', async () => {
+      const longValue = 'x'.repeat(2001);
+      const res = await supertest(app).get(`/fhir/Patient?name=${longValue}`).expect(400);
+      expect(res.body.resourceType).toBe('OperationOutcome');
+      expect(res.body.issue[0].diagnostics).toContain('too long');
     });
   });
 

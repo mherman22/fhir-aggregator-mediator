@@ -7,7 +7,7 @@ describe('FhirClient', () => {
   let client;
 
   beforeEach(() => {
-    client = new FhirClient({ timeout: 5000, maxSocketsPerSource: 2 });
+    client = new FhirClient({ timeout: 5000, maxSocketsPerSource: 2, maxRetries: 0 });
     nock.cleanAll();
   });
 
@@ -139,6 +139,72 @@ describe('FhirClient', () => {
       expect(c.maxContentLength).toBe(10 * 1024 * 1024);
       expect(c.maxRedirects).toBe(0);
       c.destroy();
+    });
+
+    it('sets default retry configuration', () => {
+      const c = new FhirClient({});
+      expect(c.maxRetries).toBe(3);
+      expect(c.initialDelayMs).toBe(500);
+      expect(c.maxDelayMs).toBe(5000);
+      c.destroy();
+    });
+
+    it('allows custom retry configuration', () => {
+      const c = new FhirClient({ maxRetries: 5, initialDelayMs: 100, maxDelayMs: 2000 });
+      expect(c.maxRetries).toBe(5);
+      expect(c.initialDelayMs).toBe(100);
+      expect(c.maxDelayMs).toBe(2000);
+      c.destroy();
+    });
+  });
+
+  describe('retry behavior', () => {
+    it('retries on 503 and succeeds on subsequent attempt', async () => {
+      const retryClient = new FhirClient({
+        timeout: 5000,
+        maxSocketsPerSource: 2,
+        maxRetries: 2,
+        initialDelayMs: 10,
+        maxDelayMs: 50,
+      });
+      const scope = nock('http://test-server:8080')
+        .get('/fhir/Patient')
+        .reply(503, 'Service Unavailable')
+        .get('/fhir/Patient')
+        .reply(200, { resourceType: 'Bundle', entry: [] });
+
+      const result = await retryClient.search(source, '/Patient', {});
+      expect(result.resourceType).toBe('Bundle');
+      scope.done();
+      retryClient.destroy();
+    });
+
+    it('does not retry on 401 Unauthorized', async () => {
+      const retryClient = new FhirClient({
+        timeout: 5000,
+        maxSocketsPerSource: 2,
+        maxRetries: 2,
+        initialDelayMs: 10,
+        maxDelayMs: 50,
+      });
+      nock('http://test-server:8080').get('/fhir/Patient').reply(401, 'Unauthorized');
+
+      await expect(retryClient.search(source, '/Patient', {})).rejects.toThrow();
+      retryClient.destroy();
+    });
+
+    it('does not retry on 404 Not Found', async () => {
+      const retryClient = new FhirClient({
+        timeout: 5000,
+        maxSocketsPerSource: 2,
+        maxRetries: 2,
+        initialDelayMs: 10,
+        maxDelayMs: 50,
+      });
+      nock('http://test-server:8080').get('/fhir/Patient').reply(404, 'Not Found');
+
+      await expect(retryClient.search(source, '/Patient', {})).rejects.toThrow();
+      retryClient.destroy();
     });
   });
 });

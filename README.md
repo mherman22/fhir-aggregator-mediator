@@ -391,7 +391,23 @@ Below is a complete `config/config.json` showing every available option:
     "timeoutMs": 30000,
     "requestTimeoutMs": 120000,
     "maxSocketsPerSource": 5,
-    "rejectUnauthorized": true
+    "rejectUnauthorized": true,
+    "maxRetries": 3,
+    "initialDelayMs": 500,
+    "maxDelayMs": 5000
+  },
+  "circuitBreaker": {
+    "failureThreshold": 5,
+    "resetTimeoutMs": 30000
+  },
+  "rateLimiting": {
+    "enabled": true,
+    "windowMs": 60000,
+    "maxRequests": 100
+  },
+  "compression": {
+    "enabled": true,
+    "threshold": 1024
   }
 }
 ```
@@ -433,19 +449,35 @@ Offset-based pagination. The token maps to per-source `_getpages` tokens stored 
 
 ### `GET /health`
 
-Returns per-source health status:
+Returns per-source health status with circuit breaker state:
 
 ```json
 {
   "status": "UP",
   "sources": [
-    { "id": "facility-a", "status": "UP", "name": "Facility A", "lastError": null, "lastChecked": "..." },
-    { "id": "facility-b", "status": "DOWN", "name": "Facility B", "lastError": "ECONNREFUSED", "lastChecked": "..." }
+    { "id": "facility-a", "status": "UP", "name": "Facility A", "lastError": null, "lastChecked": "...", "circuitBreaker": { "state": "CLOSED", "failures": 0 } },
+    { "id": "facility-b", "status": "DOWN", "name": "Facility B", "lastError": "ECONNREFUSED", "lastChecked": "...", "circuitBreaker": { "state": "OPEN", "failures": 5 } }
   ]
 }
 ```
 
 Returns HTTP 200 when all sources are UP, HTTP 503 when any source is DOWN or AUTH_FAILED.
+
+### `GET /ready`
+
+Returns HTTP 200 when the mediator has completed startup source validation and is ready to serve requests. Returns HTTP 503 during the startup validation period. Use this as the Kubernetes readiness probe.
+
+### `GET /metrics`
+
+Returns Prometheus-compatible metrics in exposition format. Includes:
+- `http_request_duration_seconds` — histogram of inbound request latency
+- `http_requests_total` — counter of inbound requests by method/route/status
+- `active_requests` — gauge of in-flight requests
+- `upstream_request_duration_seconds` — histogram of upstream FHIR server latency
+- `upstream_errors_total` — counter of upstream errors by source and error type
+- `pagination_cache_size` — gauge of current cache entries
+- `pagination_cache_hits_total` / `pagination_cache_misses_total` — counters
+- Default Node.js metrics (GC, event loop, memory)
 
 ## Source Health Monitoring
 
@@ -471,27 +503,39 @@ This allows monitoring systems to detect degraded operation.
 | Source down during request | Warning logged, results from remaining sources returned, `X-Aggregator-Sources-Failed` header set |
 | Source auth fails on startup | Mediator retries for up to 15 min, then exits with `FATAL: Source validation failed` |
 | Source auth fails during request | Source marked as `AUTH_FAILED` in health, remaining sources still serve data |
+| Circuit breaker OPEN | Source skipped entirely (no request sent, no timeout waited) until reset timeout expires |
+| Transient upstream error (502/503/504) | Automatically retried up to 3 times with exponential backoff + jitter |
 | Pagination token expired | HTTP 410 Gone returned, pipeline retries on next schedule |
 | All sources down | Empty Bundle returned |
 | Request timeout (>120 s) | HTTP 504 with FHIR OperationOutcome |
+| Rate limit exceeded | HTTP 429 with FHIR OperationOutcome and `Retry-After` header |
+| Invalid query parameter | HTTP 400 with FHIR OperationOutcome |
 
 ## Architecture
 
 ```
 src/
-  index.js            # Entry point — cluster orchestration + worker bootstrap
+  index.js            # Entry point — worker bootstrap, middleware setup, OpenHIM registration
   server.js           # Express app factory (shared by all workers)
   cluster.js          # Cluster manager — forks workers, auto-restarts on exit
-  routes.js           # Request routing, Bundle construction, resource type validation
-  aggregator.js       # Fan-out, merge, offset pagination
+  routes.js           # Request routing, Bundle construction, resource type & query validation
+  aggregator.js       # Fan-out, merge, offset pagination, circuit breaker integration
   pagination.js       # LRU cache for pagination state tokens
-  fhir-client.js      # HTTP client with Basic Auth, connection pooling, timeout
+  fhir-client.js      # HTTP client with Basic Auth, connection pooling, timeout, retry
   source-monitor.js   # Startup validation, per-request health tracking
+  circuit-breaker.js  # Per-source circuit breaker (CLOSED→OPEN→HALF_OPEN)
+  config-validator.js # Configuration validation and environment variable overrides
+  logger.js           # Structured JSON logger (pino)
+  metrics.js          # Prometheus metrics (prom-client)
 config/
   config.json         # Runtime config (sources, performance, pagination, cluster, OpenHIM)
   mediator.json       # OpenHIM mediator registration metadata and channel config
+k8s/
+  deployment.yaml     # Kubernetes Deployment, Service, HPA, PDB
+load-tests/
+  k6-load-test.js     # k6 load test scenarios with SLOs
 tests/
-  unit/               # Unit tests (aggregator, pagination, source-monitor, fhir-client, cluster)
+  unit/               # Unit tests (aggregator, pagination, source-monitor, fhir-client, circuit-breaker, config-validator, cluster)
   integration/        # Route tests via supertest
   fixtures/           # Reusable FHIR Bundles and mock sources
 ```
@@ -502,7 +546,7 @@ tests/
 # Install dependencies
 npm install
 
-# Run tests (80 tests, ~95% coverage)
+# Run tests (~110 tests, ~93% coverage)
 npm test
 
 # Run tests in watch mode
@@ -514,6 +558,60 @@ npm run lint
 # Auto-fix formatting
 npm run format
 ```
+
+## Environment Variables
+
+All configuration can be overridden via environment variables for containerized deployments:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `APP_PORT` | Server listen port | `3000` |
+| `LOG_LEVEL` | Log level (fatal, error, warn, info, debug, trace) | `info` |
+| `NODE_ENV` | Set to `development` for human-readable logs | — |
+| `CLUSTER_ENABLED` | Enable Node.js clustering (`true`/`false`) | `false` |
+| `CLUSTER_WORKERS` | Number of worker processes | CPU count |
+| `SOURCE_{id}_USERNAME` | Override source username | — |
+| `SOURCE_{id}_PASSWORD` | Override source password | — |
+| `SOURCE_{id}_URL` | Override source base URL | — |
+| `SOURCES` | Full sources array as JSON string | — |
+| `OPENHIM_API_USERNAME` | OpenHIM API username | — |
+| `OPENHIM_API_PASSWORD` | OpenHIM API password | — |
+| `OPENHIM_API_URL` | OpenHIM API URL | — |
+| `PERFORMANCE_TIMEOUT_MS` | Per-source request timeout | `30000` |
+| `PERFORMANCE_MAX_SOCKETS_PER_SOURCE` | Max TCP connections per source | `5` |
+| `PERFORMANCE_REQUEST_TIMEOUT_MS` | Express request-level timeout | `120000` |
+| `PAGINATION_CACHE_MAX_SIZE` | Max pagination sessions | `1000` |
+| `PAGINATION_CACHE_TTL_MS` | Pagination token TTL | `3600000` |
+| `RATE_LIMIT_WINDOW_MS` | Rate limit window | `60000` |
+| `RATE_LIMIT_MAX_REQUESTS` | Max requests per window | `100` |
+
+## Kubernetes Deployment
+
+Kubernetes manifests are provided in `k8s/`:
+
+```bash
+# Apply manifests
+kubectl apply -f k8s/deployment.yaml
+
+# Verify
+kubectl get pods -l app=fhir-aggregator
+```
+
+The manifests include:
+- **Deployment** with readiness/liveness probes (`/ready` and `/health`)
+- **Service** (ClusterIP)
+- **HorizontalPodAutoscaler** (70% CPU target, 2-10 replicas)
+- **PodDisruptionBudget** (minAvailable: 1)
+
+## Load Testing
+
+See `load-tests/README.md` for instructions on running k6 load tests:
+
+```bash
+k6 run load-tests/k6-load-test.js
+```
+
+SLOs: p95 < 2s, p99 < 5s, error rate < 1%.
 
 ## Production vs Demo Architecture
 

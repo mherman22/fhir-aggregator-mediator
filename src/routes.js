@@ -2,6 +2,7 @@
 
 const express = require('express');
 const aggregator = require('./aggregator');
+const logger = require('./logger');
 
 // FHIR R4 resource types — used to validate the :resourceType parameter
 // and advertised in the CapabilityStatement.
@@ -156,6 +157,48 @@ const VALID_RESOURCE_TYPE_SET = new Set(SUPPORTED_RESOURCE_TYPES);
 
 const MAX_COUNT = 500;
 const DEFAULT_COUNT = 20;
+const MAX_QUERY_PARAMS = 50;
+
+// Known FHIR search parameters that are safe to forward (Issue 12)
+const KNOWN_FHIR_PARAMS = new Set([
+  '_count',
+  '_since',
+  '_lastUpdated',
+  '_sort',
+  '_include',
+  '_revinclude',
+  '_summary',
+  '_elements',
+  '_contained',
+  '_containedType',
+  '_total',
+  '_format',
+  '_pretty',
+  '_type',
+  '_id',
+  '_tag',
+  '_security',
+  '_profile',
+  '_has',
+  '_list',
+  '_text',
+  '_content',
+  '_filter',
+  '_at',
+  '_page',
+  '_getpages',
+  '_getpagesoffset',
+  '_bundletype',
+]);
+
+/**
+ * Sanitize a string for safe logging — strip control characters (Issue 12).
+ */
+function sanitizeForLog(str) {
+  if (typeof str !== 'string') return String(str);
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/[\x00-\x1f\x7f]/g, '');
+}
 
 function buildBundle(entries, totalCount, paginationToken, baseUrl, count) {
   const bundle = {
@@ -198,7 +241,42 @@ function fhirJson(res, statusCode, body) {
   res.status(statusCode).set('Content-Type', 'application/fhir+json; charset=utf-8').json(body);
 }
 
-function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
+/**
+ * Validate and sanitize query parameters (Issue 12).
+ * Returns { valid: true, params } or { valid: false, error }.
+ */
+function validateQueryParams(query) {
+  const keys = Object.keys(query);
+
+  // Limit total number of query parameters
+  if (keys.length > MAX_QUERY_PARAMS) {
+    return { valid: false, error: `Too many query parameters (max ${MAX_QUERY_PARAMS})` };
+  }
+
+  // Validate parameter names — allow known FHIR params and resource-specific search params
+  // Resource-specific params don't start with _ so we only block unknown _ params
+  for (const key of keys) {
+    if (key.startsWith('_') && !KNOWN_FHIR_PARAMS.has(key)) {
+      return { valid: false, error: `Unknown FHIR search parameter: ${sanitizeForLog(key)}` };
+    }
+    // Limit individual parameter value length to prevent abuse
+    const value = query[key];
+    if (typeof value === 'string' && value.length > 2000) {
+      return { valid: false, error: `Parameter value too long for: ${sanitizeForLog(key)}` };
+    }
+  }
+
+  return { valid: true };
+}
+
+function createRouter(
+  config,
+  paginationManager,
+  fhirClient,
+  sourceMonitor,
+  circuitBreaker,
+  metrics
+) {
   const router = express.Router();
 
   // /fhir/metadata
@@ -250,6 +328,7 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
 
     const state = paginationManager.getState(token);
     if (!state) {
+      if (metrics) metrics.paginationCacheMisses.inc();
       return fhirJson(res, 410, {
         resourceType: 'OperationOutcome',
         issue: [
@@ -261,6 +340,7 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
         ],
       });
     }
+    if (metrics) metrics.paginationCacheHits.inc();
 
     try {
       const { entries, failedSources } = await aggregator.fetchWithOffset(
@@ -269,7 +349,8 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
         count,
         config.sources,
         fhirClient,
-        sourceMonitor
+        sourceMonitor,
+        circuitBreaker
       );
       setFailureHeaders(res, failedSources);
       const bundle = {
@@ -280,7 +361,7 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
       };
       fhirJson(res, 200, bundle);
     } catch (err) {
-      console.error('[routes] Pagination error:', err.message);
+      logger.error({ error: err.message }, 'Pagination error');
       fhirJson(res, 500, {
         resourceType: 'OperationOutcome',
         issue: [{ severity: 'error', code: 'exception', diagnostics: 'Internal server error' }],
@@ -299,7 +380,22 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
           {
             severity: 'error',
             code: 'not-supported',
-            diagnostics: `Unsupported resource type: ${resourceType}`,
+            diagnostics: `Unsupported resource type: ${sanitizeForLog(resourceType)}`,
+          },
+        ],
+      });
+    }
+
+    // Validate query parameters (Issue 12)
+    const validation = validateQueryParams(req.query);
+    if (!validation.valid) {
+      return fhirJson(res, 400, {
+        resourceType: 'OperationOutcome',
+        issue: [
+          {
+            severity: 'error',
+            code: 'invalid',
+            diagnostics: validation.error,
           },
         ],
       });
@@ -317,19 +413,28 @@ function createRouter(config, paginationManager, fhirClient, sourceMonitor) {
           queryParams,
           config.sources,
           fhirClient,
-          sourceMonitor
+          sourceMonitor,
+          circuitBreaker
         );
       setFailureHeaders(res, failedSources);
       const token = hasMore ? paginationManager.createToken(sourceTokens) : null;
       const bundle = buildBundle(entries, totalCount, token, getBaseUrl(req), count);
       const elapsed = Date.now() - startTime;
-      console.log(
-        `[routes] ${resourceType}: ${entries.length} entries, total=${totalCount}, ${elapsed}ms` +
-          (failedSources.length > 0 ? `, FAILED: ${failedSources.join(',')}` : '')
+
+      logger.info(
+        {
+          resourceType,
+          entryCount: entries.length,
+          total: totalCount,
+          responseTimeMs: elapsed,
+          failedSources: failedSources.length > 0 ? failedSources : undefined,
+        },
+        'Search completed'
       );
+
       fhirJson(res, 200, bundle);
     } catch (err) {
-      console.error(`[routes] Search error for ${resourceType}:`, err.message);
+      logger.error({ resourceType, error: err.message }, 'Search error');
       fhirJson(res, 500, {
         resourceType: 'OperationOutcome',
         issue: [{ severity: 'error', code: 'exception', diagnostics: 'Internal server error' }],
