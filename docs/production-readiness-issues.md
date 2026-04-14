@@ -1,8 +1,6 @@
 # Production Readiness — Tracked Issues
 
-This document lists 14 issues that need to be addressed to make the FHIR Aggregator Mediator production-ready for high-volume deployments. Each issue is described with context, rationale, current state, and acceptance criteria.
-
-Use the companion script `create-issues.sh` to create all 14 issues in GitHub automatically.
+This document lists 14 issues that were addressed in the pull request at https://github.com/mherman22/fhir-aggregator-mediator/pull/7 to make the FHIR Aggregator Mediator production-ready for high-volume deployments. Each issue is described with context, rationale, current state, and acceptance criteria.
 
 ---
 
