@@ -1,6 +1,6 @@
 {
   "name": "fhir-aggregator-mediator",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "OpenHIM mediator that aggregates FHIR R4 search results from multiple FHIR servers into a single endpoint",
   "main": "src/index.js",
   "engines": {
