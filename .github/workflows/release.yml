@@ -1,4 +1,4 @@
-name: Release
+name: Docker Build and Push
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
   packages: write
 
 env:
@@ -14,22 +14,24 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  release:
+  build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: "20"
           cache: "npm"
 
-      - run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Tests
+      - name: Run tests
         run: npm test
 
       - name: Log in to GitHub Container Registry
@@ -57,30 +59,14 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Generate changelog
-        id: changelog
+      - name: Verify container starts
         run: |
-          PREV_TAG=$(git tag --sort=-version:refname | head -2 | tail -1)
-          if [ -z "$PREV_TAG" ]; then
-            CHANGELOG=$(git log --oneline --no-merges)
-          else
-            CHANGELOG=$(git log --oneline --no-merges ${PREV_TAG}..HEAD)
-          fi
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          docker run -d --name test-mediator ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          sleep 3
+          docker logs test-mediator 2>&1 | grep -q "Validating"
+          docker stop test-mediator
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          body: |
-            ## Docker Image
-
-            ```bash
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
-            ```
-
-            ## Changes
-
-            ${{ steps.changelog.outputs.changelog }}
+      - name: Summary
+        run: |
+          echo "🐳 Successfully built and pushed Docker images:"
+          echo "${{ steps.meta.outputs.tags }}"

@@ -651,30 +651,90 @@ In demo/test environments, multiple iSantePlus instances run on a single machine
 
 ## Releasing
 
-Releases are automated via `release.sh`. One command handles the full cycle: set the release version, tag, bump to the next SNAPSHOT, and push. CI then builds the Docker image, pushes it to GHCR, and creates a GitHub Release.
+This project uses an automated release process through GitHub Actions that integrates with our SNAPSHOT-based versioning.
 
-```bash
-# Patch release (default): 1.1.0-SNAPSHOT → v1.1.0 → 1.1.1-SNAPSHOT
-./release.sh
+### Quick Release Process
 
-# Minor release: 1.1.0-SNAPSHOT → v1.1.0 → 1.2.0-SNAPSHOT
-./release.sh minor
+1. **Go to [Release Action](https://github.com/mherman22/fhir-aggregator-mediator/actions/workflows/release-dispatch.yml)**
+2. **Click "Run workflow"**
+3. **Select version type:** patch/minor/major
+4. **Click "Run workflow"** to start the release
 
-# Major release: 1.1.0-SNAPSHOT → v1.1.0 → 2.0.0-SNAPSHOT
-./release.sh major
+That's it! The automation handles everything else.
+
+### What Happens During a Release
+
+The workflow automatically:
+1. **Validation** - Ensures you're releasing from a SNAPSHOT version
+2. **Testing** - Runs the full test suite
+3. **Changelog Generation** - Creates changelog from [conventional commits](https://www.conventionalcommits.org/)
+4. **Version Management**:
+   - Removes `-SNAPSHOT` suffix for release (e.g., `1.1.0-SNAPSHOT` → `1.1.0`)
+   - Creates git tag for the release
+   - Bumps to next development version with `-SNAPSHOT` suffix
+5. **GitHub Release** - Creates release with changelog and Docker image info
+6. **Docker Image** - Automatically builds and pushes to GHCR
+
+### Version Types
+
+- **Patch** (`1.1.0-SNAPSHOT` → `v1.1.0` → `1.1.1-SNAPSHOT`): Bug fixes, small improvements
+- **Minor** (`1.1.0-SNAPSHOT` → `v1.1.0` → `1.2.0-SNAPSHOT`): New features, backwards-compatible changes  
+- **Major** (`1.1.0-SNAPSHOT` → `v1.1.0` → `2.0.0-SNAPSHOT`): Breaking changes
+
+### Process Overview
+
+```mermaid
+graph LR
+    A[1.1.0-SNAPSHOT] --> B[GitHub Actions Release]
+    B --> C[1.1.0 Release]
+    C --> D[1.1.1-SNAPSHOT]
+    C --> E[Docker Image]
+    C --> F[GitHub Release]
 ```
 
-The script will:
-1. Verify you're on `main` with a clean working tree
-2. Strip `-SNAPSHOT` from the version in `package.json` and commit as `Release vX.Y.Z`
-3. Create an annotated git tag `vX.Y.Z`
-4. Bump `package.json` to the next SNAPSHOT version and commit as `Prepare for next development iteration`
-5. Push both commits and the tag to `origin/main`
+### Changelog Generation
 
-CI then automatically:
-- Runs tests
-- Builds and pushes `ghcr.io/mherman22/fhir-aggregator-mediator:X.Y.Z` (plus `:X.Y` and `:latest`)
-- Creates a [GitHub Release](https://github.com/mherman22/fhir-aggregator-mediator/releases) with auto-generated changelog
+The workflow automatically parses conventional commits to generate structured changelogs:
+
+- `feat:` → ✨ New Features
+- `fix:` → 🐛 Bug Fixes  
+- `docs:` → 📚 Documentation
+- `refactor:` → ♻️ Refactoring
+- `perf:` → ⚡ Performance
+- `test:` → 🧪 Testing
+- `chore:` → 🔧 Maintenance
+
+### Alternative: GitHub CLI
+
+If you prefer command line and have [GitHub CLI](https://cli.github.com/) installed:
+
+```bash
+# Patch release
+gh workflow run release-dispatch.yml -f version_type=patch
+
+# Minor release  
+gh workflow run release-dispatch.yml -f version_type=minor
+
+# Major release
+gh workflow run release-dispatch.yml -f version_type=major
+
+# Pre-release
+gh workflow run release-dispatch.yml -f version_type=patch -f prerelease=true
+```
+
+### Pre-releases
+
+You can mark releases as pre-releases by checking the "Mark as pre-release" option when triggering the workflow.
+
+### Troubleshooting
+
+**"Current version is not a SNAPSHOT"** - This means the current version in package.json doesn't end with `-SNAPSHOT`. Manually update package.json to the next SNAPSHOT version (e.g., `1.1.1-SNAPSHOT`).
+
+**Release workflow failed** - Check the [Actions tab](https://github.com/mherman22/fhir-aggregator-mediator/actions) for detailed logs. Common issues: test failures, git conflicts, or permission issues.
+
+**Need to hotfix a release** - Create a hotfix branch from the release tag, make the fix with conventional commit format, then run the release workflow.
+
+> **Note**: Previously this project used a `release.sh` script. The GitHub Actions approach is more robust and provides better changelog generation.
 
 ### Pinning versions in downstream projects
 

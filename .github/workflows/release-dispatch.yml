@@ -1,0 +1,272 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Get current SNAPSHOT version and calculate release version
+        id: version_calc
+        run: |
+          CURRENT_SNAPSHOT=$(node -p "require('./package.json').version")
+          echo "current_snapshot=$CURRENT_SNAPSHOT" >> $GITHUB_OUTPUT
+
+          # Strip -SNAPSHOT to get current release version
+          CURRENT_RELEASE="${CURRENT_SNAPSHOT%-SNAPSHOT}"
+          echo "current_release=$CURRENT_RELEASE" >> $GITHUB_OUTPUT
+
+          # Verify this is actually a SNAPSHOT version
+          if [ "$CURRENT_SNAPSHOT" = "$CURRENT_RELEASE" ]; then
+            echo "Error: Current version ($CURRENT_SNAPSHOT) is not a SNAPSHOT. Already released?"
+            exit 1
+          fi
+
+          echo "Current SNAPSHOT: $CURRENT_SNAPSHOT"
+          echo "Release version: $CURRENT_RELEASE"
+
+      - name: Calculate next development version
+        id: next_version
+        run: |
+          CURRENT_RELEASE=${{ steps.version_calc.outputs.current_release }}
+          VERSION_TYPE=${{ github.event.inputs.version_type }}
+
+          # Split version into parts
+          IFS='.' read -ra VERSION_PARTS <<< "$CURRENT_RELEASE"
+          MAJOR=${VERSION_PARTS[0]}
+          MINOR=${VERSION_PARTS[1]}
+          PATCH=${VERSION_PARTS[2]}
+
+          # Bump version based on type
+          case $VERSION_TYPE in
+            "major")
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            "minor")
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            "patch")
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          NEXT_DEV_VERSION="$MAJOR.$MINOR.$PATCH-SNAPSHOT"
+          echo "next_dev_version=$NEXT_DEV_VERSION" >> $GITHUB_OUTPUT
+          echo "Next dev version: $NEXT_DEV_VERSION"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          RELEASE_VERSION=${{ steps.version_calc.outputs.current_release }}
+
+          # Get commits since last version tag (or all commits if no previous tag)
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$LAST_TAG" ]; then
+            echo "No previous tags found, generating changelog from all commits"
+            COMMIT_RANGE="HEAD"
+          else
+            echo "Generating changelog from $LAST_TAG to HEAD"
+            COMMIT_RANGE="$LAST_TAG..HEAD"
+          fi
+
+          # Generate changelog
+          CHANGELOG_FILE="CHANGELOG_TEMP.md"
+          echo "# Release v$RELEASE_VERSION" > $CHANGELOG_FILE
+          echo "" >> $CHANGELOG_FILE
+          echo "## What's Changed" >> $CHANGELOG_FILE
+          echo "" >> $CHANGELOG_FILE
+
+          # Get commits and format them
+          git log $COMMIT_RANGE --pretty=format:"%s" --reverse | while IFS= read -r commit; do
+            # Parse conventional commits
+            if [[ $commit =~ ^feat(\(.+\))?: ]]; then
+              echo "### ✨ New Features" >> $CHANGELOG_FILE
+              echo "- ${commit#feat*: }" >> $CHANGELOG_FILE
+              echo "" >> $CHANGELOG_FILE
+            elif [[ $commit =~ ^fix(\(.+\))?: ]]; then
+              echo "### 🐛 Bug Fixes" >> $CHANGELOG_FILE
+              echo "- ${commit#fix*: }" >> $CHANGELOG_FILE
+              echo "" >> $CHANGELOG_FILE
+            elif [[ $commit =~ ^docs(\(.+\))?: ]]; then
+              echo "### 📚 Documentation" >> $CHANGELOG_FILE
+              echo "- ${commit#docs*: }" >> $CHANGELOG_FILE
+              echo "" >> $CHANGELOG_FILE
+            elif [[ $commit =~ ^refactor(\(.+\))?: ]]; then
+              echo "### ♻️ Refactoring" >> $CHANGELOG_FILE
+              echo "- ${commit#refactor*: }" >> $CHANGELOG_FILE
+              echo "" >> $CHANGELOG_FILE
+            elif [[ $commit =~ ^perf(\(.+\))?: ]]; then
+              echo "### ⚡ Performance" >> $CHANGELOG_FILE
+              echo "- ${commit#perf*: }" >> $CHANGELOG_FILE
+              echo "" >> $CHANGELOG_FILE
+            elif [[ $commit =~ ^test(\(.+\))?: ]]; then
+              echo "### 🧪 Testing" >> $CHANGELOG_FILE
+              echo "- ${commit#test*: }" >> $CHANGELOG_FILE
+              echo "" >> $CHANGELOG_FILE
+            elif [[ $commit =~ ^chore(\(.+\))?: ]]; then
+              echo "### 🔧 Maintenance" >> $CHANGELOG_FILE
+              echo "- ${commit#chore*: }" >> $CHANGELOG_FILE
+              echo "" >> $CHANGELOG_FILE
+            else
+              echo "### 📝 Other Changes" >> $CHANGELOG_FILE
+              echo "- $commit" >> $CHANGELOG_FILE
+              echo "" >> $CHANGELOG_FILE
+            fi
+          done
+
+          # Remove duplicate headers and clean up
+          awk '!seen[$0]++' $CHANGELOG_FILE > temp && mv temp $CHANGELOG_FILE
+
+          # Read changelog content for release notes
+          CHANGELOG_CONTENT=$(cat $CHANGELOG_FILE)
+          echo "changelog_content<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "Generated changelog:"
+          cat $CHANGELOG_FILE
+
+      - name: Update CHANGELOG.md
+        run: |
+          RELEASE_VERSION=${{ steps.version_calc.outputs.current_release }}
+
+          # Create CHANGELOG.md if it doesn't exist
+          if [ ! -f CHANGELOG.md ]; then
+            echo "# Changelog" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "All notable changes to this project will be documented in this file." >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)," >> CHANGELOG.md
+            echo "and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)." >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Prepend new release to existing CHANGELOG.md
+          {
+            head -n 7 CHANGELOG.md
+            echo ""
+            cat CHANGELOG_TEMP.md
+            echo ""
+            tail -n +8 CHANGELOG.md
+          } > CHANGELOG_NEW.md
+
+          mv CHANGELOG_NEW.md CHANGELOG.md
+          rm CHANGELOG_TEMP.md
+
+          echo "Updated CHANGELOG.md with new release"
+
+      # Step 1: Create release commit and tag
+      - name: Create release version and tag
+        run: |
+          RELEASE_VERSION=${{ steps.version_calc.outputs.current_release }}
+
+          # Set release version (remove SNAPSHOT)
+          node -e "
+            const pkg = require('./package.json');
+            pkg.version = '${RELEASE_VERSION}';
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          git add package.json CHANGELOG.md
+          git commit -m "Release v${RELEASE_VERSION}"
+          git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}"
+
+          echo "Created release commit and tag for v${RELEASE_VERSION}"
+
+      # Step 2: Create next development version
+      - name: Prepare next development iteration
+        run: |
+          NEXT_DEV_VERSION=${{ steps.next_version.outputs.next_dev_version }}
+
+          # Set next development version
+          node -e "
+            const pkg = require('./package.json');
+            pkg.version = '${NEXT_DEV_VERSION}';
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          git add package.json
+          git commit -m "Prepare for next development iteration: ${NEXT_DEV_VERSION}"
+
+          echo "Prepared next development version: ${NEXT_DEV_VERSION}"
+
+      # Step 3: Push everything
+      - name: Push commits and tags
+        run: |
+          git push origin main --tags
+          echo "Pushed commits and tags to origin"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version_calc.outputs.current_release }}
+          name: Release v${{ steps.version_calc.outputs.current_release }}
+          body: |
+            ${{ steps.changelog.outputs.changelog_content }}
+
+            ## Docker Image
+
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:${{ steps.version_calc.outputs.current_release }}
+            ```
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease }}
+
+      - name: Summary
+        run: |
+          RELEASE_VERSION=${{ steps.version_calc.outputs.current_release }}
+          NEXT_DEV_VERSION=${{ steps.next_version.outputs.next_dev_version }}
+          echo "🎉 Successfully released v$RELEASE_VERSION!"
+          echo "📝 Changelog updated"
+          echo "🏷️ Git tag created and pushed"
+          echo "📦 GitHub Release created"
+          echo "🔄 Next development version: $NEXT_DEV_VERSION"
+          echo "🐳 Docker image will be built by release workflow"
+          echo "🚀 Ready for deployment!"
