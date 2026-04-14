@@ -88,6 +88,7 @@ jobs:
             docker pull ghcr.io/${{ github.repository }}:${{ steps.version_bump.outputs.new-version }}
             ```
           stage-label: ${{ steps.version_bump.outputs.stage-label }}
+          branch: 'main'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           next-dev-version: ${{ steps.version_bump.outputs.next-dev-version }}
           frontend-file: 'package.json'
