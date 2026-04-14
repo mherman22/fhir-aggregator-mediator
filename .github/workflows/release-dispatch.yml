@@ -72,7 +72,7 @@ jobs:
 
       - name: Create semantic release
         id: create_release
-        uses: mherman22/semantic-release-creator-action@v2.1
+        uses: mherman22/semantic-release-creator-action@v2.2
         with:
           release-tag: ${{ steps.version_bump.outputs.release-tag }}
           changelog: |
