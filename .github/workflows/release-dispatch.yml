@@ -56,7 +56,7 @@ jobs:
 
       - name: Bump semantic version
         id: version_bump
-        uses: mherman22/semantic-version-bump-action@v1
+        uses: mherman22/semantic-version-bump-action@v2
         with:
           version-type: ${{ github.event.inputs.version_type }}
           release-stage: ${{ github.event.inputs.release_stage }}
