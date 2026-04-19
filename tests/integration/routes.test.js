@@ -145,7 +145,8 @@ describe('routes', () => {
       expect(mockFhirClient.search).toHaveBeenCalledWith(
         expect.anything(),
         '/Patient',
-        expect.objectContaining({ _count: '500' })
+        expect.objectContaining({ _count: '500' }),
+        expect.any(Object)
       );
     });
 
@@ -155,7 +156,8 @@ describe('routes', () => {
       expect(mockFhirClient.search).toHaveBeenCalledWith(
         expect.anything(),
         '/Patient',
-        expect.objectContaining({ _count: '20' })
+        expect.objectContaining({ _count: '20' }),
+        expect.any(Object)
       );
     });
 
@@ -208,10 +210,8 @@ describe('routes', () => {
     });
 
     it('returns paginated results for valid token with offset', async () => {
-      // Create a token
-      const state = {
-        src1: { token: 'abc', baseUrl: 'http://src1:8080/fhir' },
-      };
+      // New state format: sourceId → upstream _getpages token string
+      const state = { src1: 'abc' };
       const token = paginationManager.createToken(state);
       mockFhirClient.fetchUrl.mockResolvedValue(source1Bundle);
 
@@ -228,16 +228,80 @@ describe('routes', () => {
       expect(res.headers['content-type']).toMatch(/application\/fhir\+json/);
     });
 
-    it('does not leak internal error details in pagination errors', async () => {
-      const state = { src1: { token: 'abc', baseUrl: 'http://src1:8080/fhir' } };
+    it('returns 400 for malformed (non-base64url) token', async () => {
+      const res = await supertest(app).get('/fhir?_getpages=bad!!token').expect(400);
+      expect(res.body.resourceType).toBe('OperationOutcome');
+      expect(res.body.issue[0].diagnostics).toContain('Malformed');
+    });
+
+    it('returns 400 for negative _getpagesoffset', async () => {
+      const state = { src1: 'abc' };
       const token = paginationManager.createToken(state);
-      mockFhirClient.fetchUrl.mockImplementation(() => {
-        throw new Error('ECONNREFUSED http://internal:8080');
-      });
       const res = await supertest(app)
-        .get(`/fhir?_getpages=${token}&_getpagesoffset=0&_count=20`)
-        .expect(500);
-      expect(res.body.issue[0].diagnostics).toBe('Internal server error');
+        .get(`/fhir?_getpages=${token}&_getpagesoffset=-5`)
+        .expect(400);
+      expect(res.body.issue[0].diagnostics).toContain('non-negative');
+    });
+
+    it('returns 400 for non-integer _getpagesoffset', async () => {
+      const state = { src1: 'abc' };
+      const token = paginationManager.createToken(state);
+      const res = await supertest(app)
+        .get(`/fhir?_getpages=${token}&_getpagesoffset=abc`)
+        .expect(400);
+      expect(res.body.issue[0].diagnostics).toContain('non-negative');
+    });
+
+    it('returns X-Correlation-ID header', async () => {
+      const res = await supertest(app).get('/fhir/metadata');
+      expect(res.headers['x-correlation-id']).toBeTruthy();
+    });
+
+    it('echoes client-supplied X-Correlation-ID', async () => {
+      const id = 'test-corr-id-123';
+      const res = await supertest(app)
+        .get('/fhir/metadata')
+        .set('X-Correlation-ID', id);
+      expect(res.headers['x-correlation-id']).toBe(id);
+    });
+  });
+
+  describe('strict mode', () => {
+    let strictApp;
+
+    beforeEach(() => {
+      const strictConfig = { ...testConfig, strictMode: true };
+      const strictRouter = createRouter(
+        strictConfig,
+        paginationManager,
+        mockFhirClient,
+        sourceMonitor,
+        null,
+        null
+      );
+      strictApp = express();
+      strictApp.use(strictRouter);
+    });
+
+    it('returns 502 when a source fails in strict mode', async () => {
+      mockFhirClient.search
+        .mockResolvedValueOnce(source1Bundle)
+        .mockRejectedValueOnce(new Error('timeout'))
+        .mockResolvedValueOnce(emptyBundle);
+
+      const res = await supertest(strictApp).get('/fhir/Patient').expect(502);
+      expect(res.body.resourceType).toBe('OperationOutcome');
+      expect(res.body.issue[0].code).toBe('transient');
+    });
+
+    it('returns 200 when all sources succeed in strict mode', async () => {
+      mockFhirClient.search
+        .mockResolvedValueOnce(source1Bundle)
+        .mockResolvedValueOnce(source2Bundle)
+        .mockResolvedValueOnce(emptyBundle);
+
+      const res = await supertest(strictApp).get('/fhir/Patient').expect(200);
+      expect(res.body.resourceType).toBe('Bundle');
     });
   });
 });

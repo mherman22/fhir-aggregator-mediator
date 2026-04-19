@@ -63,16 +63,47 @@ describe('config-validator', () => {
       expect(() => validateConfig(cfg)).toThrow('positive number');
     });
 
+    it('rejects invalid performance.maxConcurrentUpstreamRequests', () => {
+      const cfg = { ...validConfig, performance: { maxConcurrentUpstreamRequests: 0 } };
+      expect(() => validateConfig(cfg)).toThrow('positive number');
+    });
+
+    it('rejects invalid performance.requestTimeoutMs', () => {
+      const cfg = { ...validConfig, performance: { requestTimeoutMs: -100 } };
+      expect(() => validateConfig(cfg)).toThrow('positive number');
+    });
+
     it('rejects invalid pagination.cacheMaxSize', () => {
       const cfg = { ...validConfig, pagination: { cacheMaxSize: 0 } };
       expect(() => validateConfig(cfg)).toThrow('positive number');
     });
 
+    it('rejects non-boolean strictMode', () => {
+      const cfg = { ...validConfig, strictMode: 'yes' };
+      expect(() => validateConfig(cfg)).toThrow('strictMode must be a boolean');
+    });
+
+    it('accepts strictMode: true', () => {
+      const cfg = { ...validConfig, strictMode: true };
+      expect(() => validateConfig(cfg)).not.toThrow();
+    });
+
+    it('accepts strictMode: false', () => {
+      const cfg = { ...validConfig, strictMode: false };
+      expect(() => validateConfig(cfg)).not.toThrow();
+    });
+
     it('accepts valid optional settings', () => {
       const cfg = {
         ...validConfig,
-        performance: { timeoutMs: 5000, maxSocketsPerSource: 10 },
+        performance: {
+          timeoutMs: 5000,
+          maxSocketsPerSource: 10,
+          maxConcurrentUpstreamRequests: 50,
+          requestTimeoutMs: 120000,
+        },
         pagination: { cacheMaxSize: 500, cacheTtlMs: 60000 },
+        strictMode: false,
       };
       expect(() => validateConfig(cfg)).not.toThrow();
     });
@@ -136,6 +167,27 @@ describe('config-validator', () => {
       applyEnvOverrides(cfg);
       expect(cfg.performance.timeoutMs).toBe(10000);
       expect(cfg.performance.maxSocketsPerSource).toBe(20);
+    });
+
+    it('overrides maxConcurrentUpstreamRequests from env var', () => {
+      process.env.PERFORMANCE_MAX_CONCURRENT_UPSTREAM_REQUESTS = '25';
+      const cfg = { app: { port: 3000 }, sources: [] };
+      applyEnvOverrides(cfg);
+      expect(cfg.performance.maxConcurrentUpstreamRequests).toBe(25);
+    });
+
+    it('sets strictMode from STRICT_MODE env var', () => {
+      process.env.STRICT_MODE = 'true';
+      const cfg = { app: { port: 3000 }, sources: [] };
+      applyEnvOverrides(cfg);
+      expect(cfg.strictMode).toBe(true);
+    });
+
+    it('disables strictMode from STRICT_MODE=false env var', () => {
+      process.env.STRICT_MODE = 'false';
+      const cfg = { app: { port: 3000 }, sources: [], strictMode: true };
+      applyEnvOverrides(cfg);
+      expect(cfg.strictMode).toBe(false);
     });
 
     it('overrides pagination settings from env vars', () => {
