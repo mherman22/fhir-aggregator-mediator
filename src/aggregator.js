@@ -115,7 +115,7 @@ async function searchAll(
           if (sourceMonitor) sourceMonitor.recordFailure(source.id, err);
           if (circuitBreaker) circuitBreaker.recordFailure(source.id);
           if (metrics) {
-            const errType = err.response ? `http_${err.response.status}` : (err.code || 'network');
+            const errType = err.response ? `http_${err.response.status}` : err.code || 'network';
             metrics.upstreamErrorsTotal.labels({ source_id: source.id, error_type: errType }).inc();
           }
           logger.error(
@@ -219,7 +219,10 @@ async function fetchWithOffset(
   const promises = activeSources.map((source) => {
     // Circuit breaker: skip sources with open circuits
     if (circuitBreaker && !circuitBreaker.allowRequest(source.id)) {
-      logger.warn({ sourceId: source.id, correlationId }, 'Circuit breaker OPEN — skipping offset fetch');
+      logger.warn(
+        { sourceId: source.id, correlationId },
+        'Circuit breaker OPEN — skipping offset fetch'
+      );
       failedSources.push(source.id);
       return Promise.resolve(null);
     }
@@ -250,11 +253,14 @@ async function fetchWithOffset(
           if (sourceMonitor) sourceMonitor.recordFailure(source.id, err);
           if (circuitBreaker) circuitBreaker.recordFailure(source.id);
           if (metrics) {
-            const errType = err.response ? `http_${err.response.status}` : (err.code || 'network');
+            const errType = err.response ? `http_${err.response.status}` : err.code || 'network';
             metrics.upstreamErrorsTotal.labels({ source_id: source.id, error_type: errType }).inc();
           }
           failedSources.push(source.id);
-          logger.error({ sourceId: source.id, correlationId, error: err.message }, 'Offset fetch failed');
+          logger.error(
+            { sourceId: source.id, correlationId, error: err.message },
+            'Offset fetch failed'
+          );
           return null;
         });
     });
@@ -277,4 +283,3 @@ async function fetchWithOffset(
 }
 
 module.exports = { searchAll, fetchWithOffset };
-

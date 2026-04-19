@@ -280,7 +280,7 @@ function createRouter(
   semaphore
 ) {
   const router = express.Router();
-  const strictMode = !!(config.strictMode);
+  const strictMode = !!config.strictMode;
 
   // Correlation ID middleware — generates a UUID per request and attaches it
   // to the request object and response headers for end-to-end tracing.
@@ -490,7 +490,10 @@ function createRouter(
           ],
         });
       }
-      logger.error({ resourceType, correlationId: req.correlationId, error: err.message }, 'Search error');
+      logger.error(
+        { resourceType, correlationId: req.correlationId, error: err.message },
+        'Search error'
+      );
       fhirJson(res, 500, {
         resourceType: 'OperationOutcome',
         issue: [{ severity: 'error', code: 'exception', diagnostics: 'Internal server error' }],

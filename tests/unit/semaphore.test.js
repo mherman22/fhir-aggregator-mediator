@@ -73,7 +73,7 @@ describe('Semaphore', () => {
     let concurrent = 0;
     let maxConcurrent = 0;
 
-    const tasks = Array.from({ length: 5 }, (_, i) =>
+    const tasks = Array.from({ length: 5 }, () =>
       (async () => {
         await sem.acquire();
         concurrent++;
@@ -99,5 +99,4 @@ describe('Semaphore', () => {
     sem.release();
     expect(() => sem.release()).toThrow('release() called more times than acquire()');
   });
-
 });

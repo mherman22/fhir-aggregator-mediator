@@ -277,9 +277,7 @@ describe('routes', () => {
 
     it('echoes client-supplied X-Correlation-ID', async () => {
       const id = 'test-corr-id-123';
-      const res = await supertest(app)
-        .get('/fhir/metadata')
-        .set('X-Correlation-ID', id);
+      const res = await supertest(app).get('/fhir/metadata').set('X-Correlation-ID', id);
       expect(res.headers['x-correlation-id']).toBe(id);
     });
   });

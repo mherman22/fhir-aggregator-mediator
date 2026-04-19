@@ -36,9 +36,14 @@ describe('aggregator', () => {
 
       await searchAll('/Patient', { _count: '20' }, testSources, mockFhirClient, mockMonitor);
       expect(mockFhirClient.search).toHaveBeenCalledTimes(3);
-      expect(mockFhirClient.search).toHaveBeenCalledWith(testSources[0], '/Patient', {
-        _count: '20',
-      }, expect.any(Object));
+      expect(mockFhirClient.search).toHaveBeenCalledWith(
+        testSources[0],
+        '/Patient',
+        {
+          _count: '20',
+        },
+        expect.any(Object)
+      );
     });
 
     it('merges all entries from all sources without dedup', async () => {
@@ -226,9 +231,17 @@ describe('aggregator', () => {
         .mockResolvedValueOnce(source2Bundle)
         .mockResolvedValueOnce(source3Bundle);
 
-      const result = await searchAll('/Patient', {}, testSources, mockFhirClient, mockMonitor, null, {
-        strictMode: true,
-      });
+      const result = await searchAll(
+        '/Patient',
+        {},
+        testSources,
+        mockFhirClient,
+        mockMonitor,
+        null,
+        {
+          strictMode: true,
+        }
+      );
       expect(result.failedSources).toHaveLength(0);
     });
   });
