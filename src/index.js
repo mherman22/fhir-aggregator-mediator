@@ -52,27 +52,16 @@ async function startWorker() {
   // Issue 7: Request body size limits
   app.use(express.json({ limit: '1mb' }));
 
-  // Inbound authentication — optional Basic Auth or API key protection for /fhir/* routes
-  if (config.inboundAuth && config.inboundAuth.enabled) {
-    logger.info({ type: config.inboundAuth.type }, 'Inbound auth enabled');
-    app.use(createAuthMiddleware(config.inboundAuth));
-  }
-
-  // Issue 8: Response compression
-  const compressionEnabled = !(config.compression && config.compression.enabled === false);
-  if (compressionEnabled) {
-    app.use(
-      compression({
-        threshold: (config.compression && config.compression.threshold) || 1024,
-      })
-    );
-  }
-
-  // Issue 6: Rate limiting
-  if (config.rateLimiting && config.rateLimiting.enabled !== false) {
-    const limiter = rateLimit({
-      windowMs: (config.rateLimiting && config.rateLimiting.windowMs) || 60000,
-      max: (config.rateLimiting && config.rateLimiting.maxRequests) || 100,
+  // Issue 6: Rate limiting — applied BEFORE auth to prevent brute-force attacks.
+  // Always active when inbound auth is enabled (with sensible defaults); otherwise
+  // controlled by config.rateLimiting.
+  const rateLimitingConfig = config.rateLimiting || {};
+  const authEnabled = !!(config.inboundAuth && config.inboundAuth.enabled);
+  const shouldRateLimit = authEnabled || rateLimitingConfig.enabled !== false;
+  if (shouldRateLimit) {
+    const fhirLimiter = rateLimit({
+      windowMs: rateLimitingConfig.windowMs || 60000,
+      max: rateLimitingConfig.maxRequests || 100,
       standardHeaders: true,
       legacyHeaders: false,
       handler: (req, res) => {
@@ -92,7 +81,24 @@ async function startWorker() {
           });
       },
     });
-    app.use('/fhir', limiter);
+    app.use('/fhir', fhirLimiter);
+  }
+
+  // Inbound authentication — optional Basic Auth or API key protection for /fhir/* routes.
+  // Rate limiting is applied above so brute-force attempts are throttled first.
+  if (config.inboundAuth && config.inboundAuth.enabled) {
+    logger.info({ type: config.inboundAuth.type }, 'Inbound auth enabled');
+    app.use(createAuthMiddleware(config.inboundAuth));
+  }
+
+  // Issue 8: Response compression
+  const compressionEnabled = !(config.compression && config.compression.enabled === false);
+  if (compressionEnabled) {
+    app.use(
+      compression({
+        threshold: (config.compression && config.compression.threshold) || 1024,
+      })
+    );
   }
 
   // Issue 3: Metrics middleware

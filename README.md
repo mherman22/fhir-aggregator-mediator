@@ -764,17 +764,16 @@ Stateless tokens encode one `_getpages` token per active source. For 20 sources 
 
 ### 🔒 Security checklist
 
-- [ ] **Inbound auth** — the mediator does not authenticate inbound requests natively. Front it with [OpenHIM](https://openhim.org/) (client certificates, channel auth) or a reverse proxy with authentication.
-- [ ] **TLS termination** — the mediator listens on plain HTTP. Terminate TLS at your reverse proxy (nginx, Traefik, Envoy) or at OpenHIM Core.
-- [ ] **Secrets management** — use Kubernetes Secrets + `envFrom` for all 20 sets of credentials (via `SOURCE_{id}_PASSWORD` / `SOURCE_{id}_USERNAME`). Never commit credentials to `config.json`.
+- [x] **Inbound auth** — enable Basic Auth or API-key protection via `config.inboundAuth` (or the `INBOUND_AUTH_*` environment variables). Rate limiting is automatically enforced before auth to prevent brute-force attacks.
+- [x] **TLS** — native HTTPS is supported: set `config.tls.enabled = true` and point `certFile`/`keyFile` at your certificate files (or use `TLS_CERT_FILE` / `TLS_KEY_FILE` env vars). Alternatively, terminate TLS at your reverse proxy or OpenHIM Core.
+- [x] **Secrets management** — use Kubernetes Secrets + `envFrom` for source credentials (`SOURCE_{id}_PASSWORD`, `SOURCE_{id}_USERNAME`, `SOURCE_{id}_BEARER_TOKEN`). `config.json` no longer ships with any credentials. The mediator warns at startup if a source has an empty password and no bearer token.
 - [ ] **`rejectUnauthorized`** — leave `true` (default) unless upstream servers use self-signed certificates.
-- [ ] **Rate limiting** — configure `rateLimiting.maxRequests` to match your expected pipeline request rate. The pipeline is the only intended client; setting a tight limit prevents accidental flooding.
+- [ ] **Rate limiting** — configure `rateLimiting.maxRequests` to match your expected pipeline request rate. When inbound auth is enabled, rate limiting is always active (default: 100 req/min per IP).
 
 ### 📊 Observability checklist
 
-- [ ] **Prometheus scrape** — add `/metrics` to your Prometheus scrape config.
-- [ ] **Alert on circuit breakers** — alert when `upstream_errors_total` for any source rises; indicates a tripped circuit.
-- [ ] **Alert on upstream latency** — alert when `upstream_request_duration_seconds{quantile="0.99"}` exceeds your SLO.
+- [x] **Prometheus scrape** — Kubernetes pod annotations (`prometheus.io/scrape: "true"`, `prometheus.io/path: "/metrics"`, `prometheus.io/port: "3000"`) are set in `k8s/deployment.yaml`. Add `/metrics` to your Prometheus scrape config for non-k8s deployments.
+- [x] **Alert rules** — `k8s/prometheus-rules.yaml` ships a `PrometheusRule` CRD with alerts for upstream error spikes, p99/critical latency SLO breaches, inbound 5xx rate, and pod availability. Apply with `kubectl apply -f k8s/prometheus-rules.yaml`.
 - [ ] **Alert on failed sources** — monitor the `X-Aggregator-Sources-Failed-Count` header in your pipeline logs, or scrape the `/health` JSON.
 - [ ] **Log aggregation** — ship pino JSON logs to your log platform (ELK, Loki, CloudWatch). Filter on `correlationId` to trace a single pipeline request end-to-end.
 
@@ -783,9 +782,8 @@ Stateless tokens encode one `_getpages` token per active source. For 20 sources 
 | Limitation | Details |
 |------------|---------|
 | No clinical deduplication | The mediator removes exact-ID duplicates (to prevent HAPI transaction bundle rejection) but does **not** perform patient/encounter matching. If the same real patient exists in two sources with different IDs, both records appear in the output. Route through [OpenCR](https://github.com/intrahealth/client-registry) for patient matching. |
-| Startup validation is all-or-nothing | If any configured source is permanently unreachable at startup, the mediator will not start (retries for 15 min then exits). For optional/degraded sources, remove them from config or pre-validate that they are reachable before deploying. |
-| No write aggregation | The aggregator is read-only (`GET` / search). It does not proxy write operations (`POST`, `PUT`, `PATCH`, `DELETE`) to upstream sources. |
-| No SMART/OAuth upstream auth | Sources must use HTTP Basic Auth or no auth. Sources that require OAuth/SMART tokens are not supported. |
+| Optional sources | Sources marked `optional: true` are allowed to fail at startup — the mediator logs a warning and continues. Required sources still cause a startup retry loop (15 min). |
+| Write proxy is single-target | Write operations (`POST`, `PUT`, `PATCH`, `DELETE`) are routed to a single `writeTarget` source. Set `config.writeTarget` (or `WRITE_TARGET` env var) to the source ID that should receive writes. Fan-out writes to all sources are not supported. |
 
 ## Releasing
 
