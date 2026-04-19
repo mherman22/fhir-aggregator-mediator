@@ -228,6 +228,11 @@ function setFailureHeaders(res, failedSources) {
   }
 }
 
+function buildUpstreamHeaders(correlationId) {
+  if (!correlationId) return {};
+  return { 'X-Correlation-ID': correlationId };
+}
+
 function getBaseUrl(req) {
   return `${req.protocol}://${req.get('host')}${req.originalUrl}`;
 }
@@ -499,6 +504,155 @@ function createRouter(
         issue: [{ severity: 'error', code: 'exception', diagnostics: 'Internal server error' }],
       });
     }
+  });
+
+  // -----------------------------------------------------------------------
+  // Write proxy — POST / PUT / PATCH / DELETE
+  //
+  // Forwards mutations to the configured writeTarget source.
+  // If writeTarget is not set, returns 405 with a clear message.
+  // -----------------------------------------------------------------------
+
+  /**
+   * Resolve the configured write-target source object, or null if not set / not found.
+   */
+  function getWriteTargetSource() {
+    if (!config.writeTarget) return null;
+    return config.sources.find((s) => s.id === config.writeTarget) || null;
+  }
+
+  function writeNotConfigured(res) {
+    return fhirJson(res, 405, {
+      resourceType: 'OperationOutcome',
+      issue: [
+        {
+          severity: 'error',
+          code: 'not-supported',
+          diagnostics:
+            'Write operations require writeTarget to be configured. ' +
+            'Set config.writeTarget to the source ID you want to route writes to.',
+        },
+      ],
+    });
+  }
+
+  async function handleWrite(req, res, method, path) {
+    const target = getWriteTargetSource();
+    if (!target) return writeNotConfigured(res);
+
+    const extraHeaders = buildUpstreamHeaders(req.correlationId);
+    try {
+      const body = ['DELETE'].includes(method.toUpperCase()) ? undefined : req.body;
+      const { status, data } = await fhirClient.write(target, method, path, body, extraHeaders);
+      if (metrics) {
+        metrics.httpRequestsTotal &&
+          metrics.httpRequestsTotal.inc({
+            method: req.method,
+            route: req.route ? req.route.path : req.path,
+            status_code: status,
+          });
+      }
+      fhirJson(res, status, data);
+    } catch (err) {
+      const upstreamStatus = err.response && err.response.status;
+      if (upstreamStatus) {
+        // Forward upstream HTTP errors back to the caller
+        return fhirJson(
+          res,
+          upstreamStatus,
+          err.response.data || {
+            resourceType: 'OperationOutcome',
+            issue: [
+              {
+                severity: 'error',
+                code: 'exception',
+                diagnostics: `Upstream error: ${upstreamStatus}`,
+              },
+            ],
+          }
+        );
+      }
+      logger.error(
+        { correlationId: req.correlationId, method, path, error: err.message },
+        'Write proxy error'
+      );
+      fhirJson(res, 500, {
+        resourceType: 'OperationOutcome',
+        issue: [{ severity: 'error', code: 'exception', diagnostics: 'Internal server error' }],
+      });
+    }
+  }
+
+  // POST /fhir/:resourceType (create)
+  router.post('/fhir/:resourceType', async (req, res) => {
+    const { resourceType } = req.params;
+    if (!VALID_RESOURCE_TYPE_SET.has(resourceType)) {
+      return fhirJson(res, 400, {
+        resourceType: 'OperationOutcome',
+        issue: [
+          {
+            severity: 'error',
+            code: 'not-supported',
+            diagnostics: `Unsupported resource type: ${sanitizeForLog(resourceType)}`,
+          },
+        ],
+      });
+    }
+    await handleWrite(req, res, 'POST', `/${resourceType}`);
+  });
+
+  // PUT /fhir/:resourceType/:id (update)
+  router.put('/fhir/:resourceType/:id', async (req, res) => {
+    const { resourceType, id } = req.params;
+    if (!VALID_RESOURCE_TYPE_SET.has(resourceType)) {
+      return fhirJson(res, 400, {
+        resourceType: 'OperationOutcome',
+        issue: [
+          {
+            severity: 'error',
+            code: 'not-supported',
+            diagnostics: `Unsupported resource type: ${sanitizeForLog(resourceType)}`,
+          },
+        ],
+      });
+    }
+    await handleWrite(req, res, 'PUT', `/${resourceType}/${id}`);
+  });
+
+  // PATCH /fhir/:resourceType/:id (patch)
+  router.patch('/fhir/:resourceType/:id', async (req, res) => {
+    const { resourceType, id } = req.params;
+    if (!VALID_RESOURCE_TYPE_SET.has(resourceType)) {
+      return fhirJson(res, 400, {
+        resourceType: 'OperationOutcome',
+        issue: [
+          {
+            severity: 'error',
+            code: 'not-supported',
+            diagnostics: `Unsupported resource type: ${sanitizeForLog(resourceType)}`,
+          },
+        ],
+      });
+    }
+    await handleWrite(req, res, 'PATCH', `/${resourceType}/${id}`);
+  });
+
+  // DELETE /fhir/:resourceType/:id (delete)
+  router.delete('/fhir/:resourceType/:id', async (req, res) => {
+    const { resourceType, id } = req.params;
+    if (!VALID_RESOURCE_TYPE_SET.has(resourceType)) {
+      return fhirJson(res, 400, {
+        resourceType: 'OperationOutcome',
+        issue: [
+          {
+            severity: 'error',
+            code: 'not-supported',
+            diagnostics: `Unsupported resource type: ${sanitizeForLog(resourceType)}`,
+          },
+        ],
+      });
+    }
+    await handleWrite(req, res, 'DELETE', `/${resourceType}/${id}`);
   });
 
   return router;

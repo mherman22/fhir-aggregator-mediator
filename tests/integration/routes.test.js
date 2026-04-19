@@ -320,4 +320,148 @@ describe('routes', () => {
       expect(res.body.resourceType).toBe('Bundle');
     });
   });
+
+  describe('write proxy', () => {
+    const patient = { resourceType: 'Patient', id: 'p99' };
+
+    describe('when writeTarget is not configured', () => {
+      it('returns 405 for POST', async () => {
+        const res = await supertest(app).post('/fhir/Patient').send(patient).expect(405);
+        expect(res.body.resourceType).toBe('OperationOutcome');
+        expect(res.body.issue[0].diagnostics).toContain('writeTarget');
+      });
+
+      it('returns 405 for PUT', async () => {
+        const res = await supertest(app).put('/fhir/Patient/p99').send(patient).expect(405);
+        expect(res.body.resourceType).toBe('OperationOutcome');
+      });
+
+      it('returns 405 for PATCH', async () => {
+        const res = await supertest(app).patch('/fhir/Patient/p99').send({}).expect(405);
+        expect(res.body.resourceType).toBe('OperationOutcome');
+      });
+
+      it('returns 405 for DELETE', async () => {
+        const res = await supertest(app).delete('/fhir/Patient/p99').expect(405);
+        expect(res.body.resourceType).toBe('OperationOutcome');
+      });
+
+      it('returns 400 for POST to invalid resource type', async () => {
+        const res = await supertest(app).post('/fhir/InvalidType').send({}).expect(400);
+        expect(res.body.resourceType).toBe('OperationOutcome');
+        expect(res.body.issue[0].code).toBe('not-supported');
+      });
+    });
+
+    describe('when writeTarget is configured', () => {
+      let writeApp;
+
+      beforeEach(() => {
+        mockFhirClient.write = jest.fn();
+        const writeConfig = { ...testConfig, writeTarget: 'src1' };
+        const writeRouter = createRouter(
+          writeConfig,
+          paginationManager,
+          mockFhirClient,
+          sourceMonitor,
+          null,
+          null
+        );
+        writeApp = express();
+        writeApp.use(express.json());
+        writeApp.use(writeRouter);
+      });
+
+      it('proxies POST and returns upstream response', async () => {
+        mockFhirClient.write.mockResolvedValue({
+          status: 201,
+          data: { resourceType: 'Patient', id: 'p99' },
+          headers: {},
+        });
+
+        const res = await supertest(writeApp).post('/fhir/Patient').send(patient).expect(201);
+        expect(res.body.resourceType).toBe('Patient');
+        expect(mockFhirClient.write).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'src1' }),
+          'POST',
+          '/Patient',
+          patient,
+          expect.any(Object)
+        );
+      });
+
+      it('proxies PUT with resource ID', async () => {
+        mockFhirClient.write.mockResolvedValue({
+          status: 200,
+          data: patient,
+          headers: {},
+        });
+
+        const res = await supertest(writeApp).put('/fhir/Patient/p99').send(patient).expect(200);
+        expect(res.body).toEqual(patient);
+        expect(mockFhirClient.write).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'src1' }),
+          'PUT',
+          '/Patient/p99',
+          patient,
+          expect.any(Object)
+        );
+      });
+
+      it('proxies DELETE (no body)', async () => {
+        mockFhirClient.write.mockResolvedValue({ status: 204, data: null, headers: {} });
+
+        await supertest(writeApp).delete('/fhir/Patient/p99').expect(204);
+        expect(mockFhirClient.write).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'src1' }),
+          'DELETE',
+          '/Patient/p99',
+          undefined,
+          expect.any(Object)
+        );
+      });
+
+      it('proxies PATCH', async () => {
+        mockFhirClient.write.mockResolvedValue({ status: 200, data: patient, headers: {} });
+
+        await supertest(writeApp)
+          .patch('/fhir/Patient/p99')
+          .send({ resourceType: 'Parameters' })
+          .expect(200);
+        expect(mockFhirClient.write).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'src1' }),
+          'PATCH',
+          '/Patient/p99',
+          expect.any(Object),
+          expect.any(Object)
+        );
+      });
+
+      it('forwards upstream 4xx back to caller', async () => {
+        const upstreamErr = new Error('Unprocessable');
+        upstreamErr.response = {
+          status: 422,
+          data: { resourceType: 'OperationOutcome', issue: [] },
+        };
+        mockFhirClient.write.mockRejectedValue(upstreamErr);
+
+        const res = await supertest(writeApp).post('/fhir/Patient').send(patient).expect(422);
+        expect(res.body.resourceType).toBe('OperationOutcome');
+      });
+
+      it('returns 500 on unexpected write error', async () => {
+        mockFhirClient.write.mockRejectedValue(new Error('network error'));
+
+        const res = await supertest(writeApp).post('/fhir/Patient').send(patient).expect(500);
+        expect(res.body.resourceType).toBe('OperationOutcome');
+        expect(res.body.issue[0].diagnostics).toBe('Internal server error');
+      });
+
+      it('sets X-Correlation-ID on write response', async () => {
+        mockFhirClient.write.mockResolvedValue({ status: 201, data: {}, headers: {} });
+        const res = await supertest(writeApp).post('/fhir/Patient').send(patient).expect(201);
+        expect(res.headers['x-correlation-id']).toBeTruthy();
+      });
+    });
+  });
 });

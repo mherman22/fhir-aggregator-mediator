@@ -1,6 +1,8 @@
 'use strict';
 
 const express = require('express');
+const https = require('https');
+const fs = require('fs');
 const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
@@ -14,6 +16,7 @@ const Semaphore = require('./semaphore');
 const createRouter = require('./routes');
 const createMetrics = require('./metrics');
 const { validateConfig, applyEnvOverrides } = require('./config-validator');
+const { createAuthMiddleware } = require('./auth-middleware');
 const logger = require('./logger');
 
 const config = require('../config/config.json');
@@ -48,6 +51,12 @@ async function startWorker() {
 
   // Issue 7: Request body size limits
   app.use(express.json({ limit: '1mb' }));
+
+  // Inbound authentication — optional Basic Auth or API key protection for /fhir/* routes
+  if (config.inboundAuth && config.inboundAuth.enabled) {
+    logger.info({ type: config.inboundAuth.type }, 'Inbound auth enabled');
+    app.use(createAuthMiddleware(config.inboundAuth));
+  }
 
   // Issue 8: Response compression
   const compressionEnabled = !(config.compression && config.compression.enabled === false);
@@ -152,11 +161,57 @@ async function startWorker() {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  /**
+   * Warn if any source still has placeholder/empty credentials with no bearer token.
+   * This does not block startup — it is advisory only.
+   */
+  function warnPlaceholderCredentials() {
+    const PLACEHOLDER_PATTERNS = ['CHANGE_ME', 'changeme', 'change_me', 'password', 'secret'];
+    config.sources.forEach((source) => {
+      if (source.bearerToken && source.bearerToken.length > 0) return; // bearer token is fine
+      const pass = source.password || '';
+      if (
+        pass.length === 0 ||
+        PLACEHOLDER_PATTERNS.some((p) => pass.toLowerCase().includes(p.toLowerCase()))
+      ) {
+        logger.warn(
+          { sourceId: source.id, sourceName: source.name },
+          'Source uses a placeholder or empty password. Override via SOURCE_{id}_PASSWORD env var ' +
+            'or source.bearerToken before deploying to production.'
+        );
+      }
+    });
+  }
+
+  /**
+   * Create the HTTP or HTTPS server depending on TLS configuration.
+   * Returns the server instance.
+   */
+  function createServer() {
+    if (config.tls && config.tls.enabled) {
+      let cert, key;
+      try {
+        cert = fs.readFileSync(config.tls.certFile);
+        key = fs.readFileSync(config.tls.keyFile);
+      } catch (err) {
+        logger.fatal({ error: err.message }, 'Failed to read TLS certificate/key files');
+        process.exit(1);
+      }
+      const tlsOptions = { cert, key };
+      if (config.tls.passphrase) tlsOptions.passphrase = config.tls.passphrase;
+      logger.info({ certFile: config.tls.certFile }, 'TLS enabled — creating HTTPS server');
+      return https.createServer(tlsOptions, app);
+    }
+    return app; // app.listen() creates an HTTP server internally
+  }
+
   async function start() {
+    warnPlaceholderCredentials();
+
     logger.info(
       {
         sourceCount: config.sources.length,
-        sources: config.sources.map((s) => ({ id: s.id, name: s.name })),
+        sources: config.sources.map((s) => ({ id: s.id, name: s.name, optional: !!s.optional })),
       },
       'Validating sources'
     );
@@ -191,8 +246,10 @@ async function startWorker() {
     // Mark as ready after successful validation (Issue 10)
     isReady = true;
 
-    server = app.listen(port, () => {
-      logger.info({ port, pid: process.pid }, 'FHIR Aggregator Mediator listening');
+    const httpServer = createServer();
+    server = httpServer.listen(port, () => {
+      const protocol = config.tls && config.tls.enabled ? 'https' : 'http';
+      logger.info({ port, pid: process.pid, protocol }, 'FHIR Aggregator Mediator listening');
 
       registerMediator(config.mediator.api, mediatorConfig, (err) => {
         if (err) {

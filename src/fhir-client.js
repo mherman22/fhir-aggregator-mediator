@@ -6,8 +6,32 @@ const http = require('http');
 const https = require('https');
 const logger = require('./logger');
 
-function hasAuth(source) {
+function hasBasicAuth(source) {
   return typeof source.username === 'string' && source.username.length > 0;
+}
+
+function hasBearerToken(source) {
+  return typeof source.bearerToken === 'string' && source.bearerToken.length > 0;
+}
+
+/**
+ * Build the axios `auth` object for Basic Auth, or null when using Bearer or no auth.
+ */
+function getBasicAuth(source) {
+  if (hasBearerToken(source)) return undefined; // Bearer token takes precedence
+  if (hasBasicAuth(source)) return { username: source.username, password: source.password };
+  return undefined;
+}
+
+/**
+ * Return any extra auth headers needed (Bearer token).
+ * Returns an empty object when Basic Auth or no auth is used.
+ */
+function getAuthHeaders(source) {
+  if (hasBearerToken(source)) {
+    return { Authorization: `Bearer ${source.bearerToken}` };
+  }
+  return {};
 }
 
 class FhirClient {
@@ -77,12 +101,12 @@ class FhirClient {
     const url = `${source.baseUrl}${path}`;
     const response = await this.client.get(url, {
       params: queryParams,
-      auth: hasAuth(source) ? { username: source.username, password: source.password } : undefined,
+      auth: getBasicAuth(source),
       timeout: this.timeout,
       maxContentLength: this.maxContentLength,
       maxBodyLength: this.maxContentLength,
       maxRedirects: this.maxRedirects,
-      headers: { Accept: 'application/fhir+json', ...extraHeaders },
+      headers: { Accept: 'application/fhir+json', ...getAuthHeaders(source), ...extraHeaders },
       httpAgent: this.httpAgent,
       httpsAgent: this.httpsAgent,
     });
@@ -91,16 +115,49 @@ class FhirClient {
 
   async fetchUrl(source, absoluteUrl, extraHeaders = {}) {
     const response = await this.client.get(absoluteUrl, {
-      auth: hasAuth(source) ? { username: source.username, password: source.password } : undefined,
+      auth: getBasicAuth(source),
       timeout: this.timeout,
       maxContentLength: this.maxContentLength,
       maxBodyLength: this.maxContentLength,
       maxRedirects: this.maxRedirects,
-      headers: { Accept: 'application/fhir+json', ...extraHeaders },
+      headers: { Accept: 'application/fhir+json', ...getAuthHeaders(source), ...extraHeaders },
       httpAgent: this.httpAgent,
       httpsAgent: this.httpsAgent,
     });
     return response.data;
+  }
+
+  /**
+   * Proxy a write operation (POST / PUT / PATCH / DELETE) to an upstream source.
+   *
+   * @param {Object}  source  - source config object
+   * @param {string}  method  - HTTP method (POST, PUT, PATCH, DELETE)
+   * @param {string}  path    - resource path, e.g. '/Patient/123'
+   * @param {Object|null} body - request body (ignored for DELETE)
+   * @param {Object}  extraHeaders
+   * @returns {{ status: number, data: any, headers: Object }}
+   */
+  async write(source, method, path, body, extraHeaders = {}) {
+    const url = `${source.baseUrl}${path}`;
+    const response = await this.client.request({
+      method: method.toLowerCase(),
+      url,
+      data: body !== undefined ? body : undefined,
+      auth: getBasicAuth(source),
+      timeout: this.timeout,
+      maxContentLength: this.maxContentLength,
+      maxBodyLength: this.maxContentLength,
+      maxRedirects: this.maxRedirects,
+      headers: {
+        Accept: 'application/fhir+json',
+        'Content-Type': 'application/fhir+json; charset=utf-8',
+        ...getAuthHeaders(source),
+        ...extraHeaders,
+      },
+      httpAgent: this.httpAgent,
+      httpsAgent: this.httpsAgent,
+    });
+    return { status: response.status, data: response.data, headers: response.headers };
   }
 
   destroy() {
