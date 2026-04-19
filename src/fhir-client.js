@@ -12,7 +12,8 @@ function hasAuth(source) {
 
 class FhirClient {
   constructor(config = {}) {
-    this.timeout = config.timeout || 30000;
+    // Support both `timeoutMs` (config.json key) and legacy `timeout` spelling
+    this.timeout = config.timeoutMs || config.timeout || 30000;
     this.maxContentLength = config.maxContentLength || 50 * 1024 * 1024; // 50 MB
     this.maxRedirects = config.maxRedirects !== undefined ? config.maxRedirects : 5;
 
@@ -72,7 +73,7 @@ class FhirClient {
     });
   }
 
-  async search(source, path, queryParams) {
+  async search(source, path, queryParams, extraHeaders = {}) {
     const url = `${source.baseUrl}${path}`;
     const response = await this.client.get(url, {
       params: queryParams,
@@ -81,21 +82,21 @@ class FhirClient {
       maxContentLength: this.maxContentLength,
       maxBodyLength: this.maxContentLength,
       maxRedirects: this.maxRedirects,
-      headers: { Accept: 'application/fhir+json' },
+      headers: { Accept: 'application/fhir+json', ...extraHeaders },
       httpAgent: this.httpAgent,
       httpsAgent: this.httpsAgent,
     });
     return response.data;
   }
 
-  async fetchUrl(source, absoluteUrl) {
+  async fetchUrl(source, absoluteUrl, extraHeaders = {}) {
     const response = await this.client.get(absoluteUrl, {
       auth: hasAuth(source) ? { username: source.username, password: source.password } : undefined,
       timeout: this.timeout,
       maxContentLength: this.maxContentLength,
       maxBodyLength: this.maxContentLength,
       maxRedirects: this.maxRedirects,
-      headers: { Accept: 'application/fhir+json' },
+      headers: { Accept: 'application/fhir+json', ...extraHeaders },
       httpAgent: this.httpAgent,
       httpsAgent: this.httpsAgent,
     });

@@ -55,6 +55,17 @@ describe('FhirClient', () => {
       scope.done();
     });
 
+    it('propagates extra headers (e.g. X-Correlation-ID) to upstream', async () => {
+      const scope = nock('http://test-server:8080', {
+        reqheaders: { 'X-Correlation-ID': 'test-corr-id' },
+      })
+        .get('/fhir/Patient')
+        .reply(200, { resourceType: 'Bundle' });
+
+      await client.search(source, '/Patient', {}, { 'X-Correlation-ID': 'test-corr-id' });
+      scope.done();
+    });
+
     it('throws on 401 Unauthorized', async () => {
       nock('http://test-server:8080').get('/fhir/Patient').reply(401, 'Unauthorized');
 
@@ -154,6 +165,24 @@ describe('FhirClient', () => {
       expect(c.maxRetries).toBe(5);
       expect(c.initialDelayMs).toBe(100);
       expect(c.maxDelayMs).toBe(2000);
+      c.destroy();
+    });
+
+    it('reads timeout from timeoutMs (config.json key)', () => {
+      const c = new FhirClient({ timeoutMs: 12345 });
+      expect(c.timeout).toBe(12345);
+      c.destroy();
+    });
+
+    it('falls back to legacy timeout key when timeoutMs absent', () => {
+      const c = new FhirClient({ timeout: 9999 });
+      expect(c.timeout).toBe(9999);
+      c.destroy();
+    });
+
+    it('prefers timeoutMs over legacy timeout when both present', () => {
+      const c = new FhirClient({ timeoutMs: 8000, timeout: 4000 });
+      expect(c.timeout).toBe(8000);
       c.destroy();
     });
   });

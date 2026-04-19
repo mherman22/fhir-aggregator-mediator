@@ -36,9 +36,14 @@ describe('aggregator', () => {
 
       await searchAll('/Patient', { _count: '20' }, testSources, mockFhirClient, mockMonitor);
       expect(mockFhirClient.search).toHaveBeenCalledTimes(3);
-      expect(mockFhirClient.search).toHaveBeenCalledWith(testSources[0], '/Patient', {
-        _count: '20',
-      });
+      expect(mockFhirClient.search).toHaveBeenCalledWith(
+        testSources[0],
+        '/Patient',
+        {
+          _count: '20',
+        },
+        expect.any(Object)
+      );
     });
 
     it('merges all entries from all sources without dedup', async () => {
@@ -109,8 +114,8 @@ describe('aggregator', () => {
 
       const result = await searchAll('/Location', {}, testSources, mockFhirClient, mockMonitor);
       expect(result.hasMore).toBe(true);
-      expect(result.sourceTokens.src1.token).toBe('abc123');
-      expect(result.sourceTokens.src2.token).toBe('def456');
+      expect(result.sourceTokens.src1).toBe('abc123');
+      expect(result.sourceTokens.src2).toBe('def456');
       expect(result.sourceTokens.src3).toBeUndefined();
     });
 
@@ -146,9 +151,11 @@ describe('aggregator', () => {
   });
 
   describe('fetchWithOffset', () => {
+    // New state format: sourceId → upstream _getpages token string
+    // baseUrl is looked up from config.sources at fetch time
     const state = {
-      src1: { token: 'abc123', baseUrl: 'http://src1:8080/fhir' },
-      src2: { token: 'def456', baseUrl: 'http://src2:8080/fhir' },
+      src1: 'abc123',
+      src2: 'def456',
     };
 
     it('fetches from sources in state with correct offset URL', async () => {
@@ -159,17 +166,19 @@ describe('aggregator', () => {
       expect(mockFhirClient.fetchUrl).toHaveBeenCalledTimes(2);
       expect(mockFhirClient.fetchUrl).toHaveBeenCalledWith(
         testSources[0],
-        'http://src1:8080/fhir?_getpages=abc123&_getpagesoffset=40&_count=20'
+        'http://src1:8080/fhir?_getpages=abc123&_getpagesoffset=40&_count=20',
+        expect.any(Object)
       );
       expect(mockFhirClient.fetchUrl).toHaveBeenCalledWith(
         testSources[1],
-        'http://src2:8080/fhir?_getpages=def456&_getpagesoffset=40&_count=20'
+        'http://src2:8080/fhir?_getpages=def456&_getpagesoffset=40&_count=20',
+        expect.any(Object)
       );
     });
 
     it('skips sources not in state', async () => {
       mockFhirClient.fetchUrl.mockResolvedValue(source1Bundle);
-      const partialState = { src1: { token: 'abc', baseUrl: 'http://src1:8080/fhir' } };
+      const partialState = { src1: 'abc' };
 
       await fetchWithOffset(partialState, 0, 20, testSources, mockFhirClient, mockMonitor);
       expect(mockFhirClient.fetchUrl).toHaveBeenCalledTimes(1);
@@ -196,6 +205,44 @@ describe('aggregator', () => {
         .filter((e) => e.resource.resourceType === 'Practitioner')
         .map((e) => e.resource.id);
       expect(prIds).toEqual(['pr1']);
+    });
+  });
+
+  describe('strict mode', () => {
+    it('throws with isStrictModeFailure when a source fails in strict mode', async () => {
+      mockFhirClient.search
+        .mockResolvedValueOnce(source1Bundle)
+        .mockRejectedValueOnce(new Error('Connection refused'))
+        .mockResolvedValueOnce(source3Bundle);
+
+      await expect(
+        searchAll('/Patient', {}, testSources, mockFhirClient, mockMonitor, null, {
+          strictMode: true,
+        })
+      ).rejects.toMatchObject({
+        isStrictModeFailure: true,
+        failedSources: ['src2'],
+      });
+    });
+
+    it('succeeds in strict mode when all sources succeed', async () => {
+      mockFhirClient.search
+        .mockResolvedValueOnce(source1Bundle)
+        .mockResolvedValueOnce(source2Bundle)
+        .mockResolvedValueOnce(source3Bundle);
+
+      const result = await searchAll(
+        '/Patient',
+        {},
+        testSources,
+        mockFhirClient,
+        mockMonitor,
+        null,
+        {
+          strictMode: true,
+        }
+      );
+      expect(result.failedSources).toHaveLength(0);
     });
   });
 });

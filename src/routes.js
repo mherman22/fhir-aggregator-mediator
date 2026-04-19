@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const { v4: uuidv4 } = require('uuid');
 const aggregator = require('./aggregator');
 const logger = require('./logger');
 
@@ -275,9 +276,19 @@ function createRouter(
   fhirClient,
   sourceMonitor,
   circuitBreaker,
-  metrics
+  metrics,
+  semaphore
 ) {
   const router = express.Router();
+  const strictMode = !!config.strictMode;
+
+  // Correlation ID middleware — generates a UUID per request and attaches it
+  // to the request object and response headers for end-to-end tracing.
+  router.use((req, res, next) => {
+    req.correlationId = req.headers['x-correlation-id'] || uuidv4();
+    res.set('X-Correlation-ID', req.correlationId);
+    next();
+  });
 
   // /fhir/metadata
   router.get('/fhir/metadata', (req, res) => {
@@ -323,7 +334,32 @@ function createRouter(
     }
 
     const token = req.query._getpages;
-    const offset = parseInt(req.query._getpagesoffset || '0', 10);
+
+    // Validate token is a well-formed base64url string before decoding
+    if (!/^[A-Za-z0-9_-]+$/.test(token)) {
+      if (metrics) metrics.paginationCacheMisses.inc();
+      return fhirJson(res, 400, {
+        resourceType: 'OperationOutcome',
+        issue: [{ severity: 'error', code: 'invalid', diagnostics: 'Malformed _getpages token' }],
+      });
+    }
+
+    // Validate _getpagesoffset is a non-negative integer
+    const rawOffset = req.query._getpagesoffset || '0';
+    if (!/^(0|[1-9]\d*)$/.test(rawOffset)) {
+      return fhirJson(res, 400, {
+        resourceType: 'OperationOutcome',
+        issue: [
+          {
+            severity: 'error',
+            code: 'invalid',
+            diagnostics: '_getpagesoffset must be a non-negative integer',
+          },
+        ],
+      });
+    }
+    const offset = parseInt(rawOffset, 10);
+
     const count = parseCount(req.query._count);
 
     const state = paginationManager.getState(token);
@@ -350,7 +386,8 @@ function createRouter(
         config.sources,
         fhirClient,
         sourceMonitor,
-        circuitBreaker
+        circuitBreaker,
+        { metrics, correlationId: req.correlationId, semaphore }
       );
       setFailureHeaders(res, failedSources);
       const bundle = {
@@ -361,7 +398,7 @@ function createRouter(
       };
       fhirJson(res, 200, bundle);
     } catch (err) {
-      logger.error({ error: err.message }, 'Pagination error');
+      logger.error({ correlationId: req.correlationId, error: err.message }, 'Pagination error');
       fhirJson(res, 500, {
         resourceType: 'OperationOutcome',
         issue: [{ severity: 'error', code: 'exception', diagnostics: 'Internal server error' }],
@@ -414,7 +451,8 @@ function createRouter(
           config.sources,
           fhirClient,
           sourceMonitor,
-          circuitBreaker
+          circuitBreaker,
+          { metrics, correlationId: req.correlationId, semaphore, strictMode }
         );
       setFailureHeaders(res, failedSources);
       const token = hasMore ? paginationManager.createToken(sourceTokens) : null;
@@ -424,6 +462,7 @@ function createRouter(
       logger.info(
         {
           resourceType,
+          correlationId: req.correlationId,
           entryCount: entries.length,
           total: totalCount,
           responseTimeMs: elapsed,
@@ -434,7 +473,27 @@ function createRouter(
 
       fhirJson(res, 200, bundle);
     } catch (err) {
-      logger.error({ resourceType, error: err.message }, 'Search error');
+      if (err.isStrictModeFailure) {
+        logger.warn(
+          { resourceType, correlationId: req.correlationId, failedSources: err.failedSources },
+          'Strict mode: upstream source failure'
+        );
+        setFailureHeaders(res, err.failedSources);
+        return fhirJson(res, 502, {
+          resourceType: 'OperationOutcome',
+          issue: [
+            {
+              severity: 'error',
+              code: 'transient',
+              diagnostics: `One or more upstream sources failed: ${err.failedSources.join(', ')}`,
+            },
+          ],
+        });
+      }
+      logger.error(
+        { resourceType, correlationId: req.correlationId, error: err.message },
+        'Search error'
+      );
       fhirJson(res, 500, {
         resourceType: 'OperationOutcome',
         issue: [{ severity: 'error', code: 'exception', diagnostics: 'Internal server error' }],

@@ -10,6 +10,7 @@ const FhirClient = require('./fhir-client');
 const PaginationManager = require('./pagination');
 const SourceMonitor = require('./source-monitor');
 const CircuitBreaker = require('./circuit-breaker');
+const Semaphore = require('./semaphore');
 const createRouter = require('./routes');
 const createMetrics = require('./metrics');
 const { validateConfig, applyEnvOverrides } = require('./config-validator');
@@ -36,6 +37,11 @@ async function startWorker() {
   const sourceMonitor = new SourceMonitor();
   const circuitBreaker = new CircuitBreaker(config.circuitBreaker || {});
   const metrics = createMetrics();
+
+  // Upstream concurrency limiter — prevents fan-out storms during large batch runs
+  const maxConcurrentUpstream =
+    (config.performance && config.performance.maxConcurrentUpstreamRequests) || 50;
+  const semaphore = new Semaphore(maxConcurrentUpstream);
 
   // Issue 7: Security headers via helmet
   app.use(helmet());
@@ -104,7 +110,8 @@ async function startWorker() {
     fhirClient,
     sourceMonitor,
     circuitBreaker,
-    metrics
+    metrics,
+    semaphore
   );
   app.use(router);
 
@@ -128,8 +135,6 @@ async function startWorker() {
   // Issue 3: Prometheus metrics endpoint
   app.get('/metrics', async (req, res) => {
     try {
-      // Update pagination cache size gauge
-      metrics.paginationCacheSize.set(paginationManager.cache.size);
       res.set('Content-Type', metrics.register.contentType);
       res.end(await metrics.register.metrics());
     } catch (err) {

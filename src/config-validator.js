@@ -62,9 +62,30 @@ function validateConfig(config) {
         errors.push('performance.maxSocketsPerSource must be a positive number');
       }
     }
+    if (config.performance.maxConcurrentUpstreamRequests !== undefined) {
+      if (
+        !Number.isInteger(config.performance.maxConcurrentUpstreamRequests) ||
+        config.performance.maxConcurrentUpstreamRequests < 1
+      ) {
+        errors.push('performance.maxConcurrentUpstreamRequests must be a positive integer');
+      }
+    }
+    if (config.performance.requestTimeoutMs !== undefined) {
+      if (
+        typeof config.performance.requestTimeoutMs !== 'number' ||
+        config.performance.requestTimeoutMs < 1
+      ) {
+        errors.push('performance.requestTimeoutMs must be a positive number');
+      }
+    }
   }
 
-  // pagination (optional)
+  // strictMode (optional boolean)
+  if (config.strictMode !== undefined && typeof config.strictMode !== 'boolean') {
+    errors.push('strictMode must be a boolean');
+  }
+
+  // pagination (optional — kept for config compatibility; stateless tokens do not use these)
   if (config.pagination) {
     if (config.pagination.cacheMaxSize !== undefined) {
       if (
@@ -140,6 +161,18 @@ function applyEnvOverrides(config) {
   if (process.env.PERFORMANCE_REQUEST_TIMEOUT_MS) {
     config.performance = config.performance || {};
     config.performance.requestTimeoutMs = parseInt(process.env.PERFORMANCE_REQUEST_TIMEOUT_MS, 10);
+  }
+  if (process.env.PERFORMANCE_MAX_CONCURRENT_UPSTREAM_REQUESTS) {
+    config.performance = config.performance || {};
+    config.performance.maxConcurrentUpstreamRequests = parseInt(
+      process.env.PERFORMANCE_MAX_CONCURRENT_UPSTREAM_REQUESTS,
+      10
+    );
+  }
+
+  // Strict mode
+  if (process.env.STRICT_MODE !== undefined) {
+    config.strictMode = process.env.STRICT_MODE === 'true' || process.env.STRICT_MODE === '1';
   }
 
   // Pagination settings

@@ -2,6 +2,7 @@
 
 const cluster = require('cluster');
 const os = require('os');
+const logger = require('./logger');
 
 /**
  * Cluster manager for the FHIR Aggregator Mediator.
@@ -65,7 +66,7 @@ function startCluster(startWorker, config) {
 
   if (cluster.isPrimary) {
     const numWorkers = getWorkerCount(clusterConfig);
-    console.log(`[cluster] Primary ${process.pid} forking ${numWorkers} worker(s)`);
+    logger.info({ pid: process.pid, numWorkers }, 'Cluster primary forking workers');
 
     for (let i = 0; i < numWorkers; i++) {
       cluster.fork();
@@ -73,11 +74,11 @@ function startCluster(startWorker, config) {
 
     cluster.on('exit', (worker, code, signal) => {
       const reason = signal || code;
-      console.warn(`[cluster] Worker ${worker.process.pid} exited (${reason}), restarting...`);
+      logger.warn({ workerPid: worker.process.pid, reason }, 'Cluster worker exited, restarting');
       cluster.fork();
     });
   } else {
-    console.log(`[cluster] Worker ${process.pid} starting`);
+    logger.info({ pid: process.pid }, 'Cluster worker starting');
     startWorker();
   }
 }
