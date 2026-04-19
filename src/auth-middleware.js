@@ -48,9 +48,9 @@ function safeEqual(a, b) {
   const bufA = Buffer.from(String(a), 'utf8');
   const bufB = Buffer.from(String(b), 'utf8');
   if (bufA.length !== bufB.length) {
-    // Perform a dummy compare on equal-length buffers to maintain constant time,
-    // then unconditionally return false.
-    crypto.timingSafeEqual(bufA, Buffer.alloc(bufA.length, 0));
+    // Perform a dummy compare against a same-length copy of bufA so that the
+    // timing of this branch does not leak the length of the expected secret.
+    crypto.timingSafeEqual(bufA, Buffer.allocUnsafe(bufA.length).fill(bufA));
     return false;
   }
   return crypto.timingSafeEqual(bufA, bufB);

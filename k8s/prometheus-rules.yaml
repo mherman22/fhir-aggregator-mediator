@@ -37,7 +37,7 @@ spec:
               Source {{ $labels.source_id }} generated {{ $value | printf "%.0f" }} errors
               in the last 5 minutes (error_type={{ $labels.error_type }}).
               Check /health for circuit breaker state.
-            runbook_url: "https://github.com/mherman22/fhir-aggregator-mediator#source-health-monitoring"
+            runbook_url: "https://github.com/mherman22/fhir-aggregator-mediator#source-health-monitoring-1"
 
         # ---------------------------------------------------------------
         # p99 upstream latency SLO breach
@@ -58,7 +58,7 @@ spec:
             description: >
               The 99th-percentile upstream request latency to source {{ $labels.source_id }}
               has been above 5 seconds for 5 minutes.  This may slow pipeline throughput.
-            runbook_url: "https://github.com/mherman22/fhir-aggregator-mediator#environment-variables"
+            runbook_url: "https://github.com/mherman22/fhir-aggregator-mediator#setup--configuration-guide"
 
         # ---------------------------------------------------------------
         # p99 upstream latency critical
@@ -79,7 +79,7 @@ spec:
             description: >
               The 99th-percentile upstream request latency to source {{ $labels.source_id }}
               has exceeded 30 seconds.  Pipeline requests may time out.
-            runbook_url: "https://github.com/mherman22/fhir-aggregator-mediator#environment-variables"
+            runbook_url: "https://github.com/mherman22/fhir-aggregator-mediator#setup--configuration-guide"
 
     - name: fhir-aggregator.inbound
       interval: 30s
