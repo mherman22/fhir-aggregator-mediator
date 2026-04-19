@@ -65,7 +65,12 @@ describe('config-validator', () => {
 
     it('rejects invalid performance.maxConcurrentUpstreamRequests', () => {
       const cfg = { ...validConfig, performance: { maxConcurrentUpstreamRequests: 0 } };
-      expect(() => validateConfig(cfg)).toThrow('positive number');
+      expect(() => validateConfig(cfg)).toThrow('positive integer');
+    });
+
+    it('rejects non-integer performance.maxConcurrentUpstreamRequests (float)', () => {
+      const cfg = { ...validConfig, performance: { maxConcurrentUpstreamRequests: 1.5 } };
+      expect(() => validateConfig(cfg)).toThrow('positive integer');
     });
 
     it('rejects invalid performance.requestTimeoutMs', () => {

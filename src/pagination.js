@@ -45,6 +45,12 @@ class PaginationManager {
       const json = Buffer.from(token, 'base64url').toString('utf8');
       const state = JSON.parse(json);
       if (!state || typeof state !== 'object' || Array.isArray(state)) return null;
+      // Each value must be a non-empty string (the upstream _getpages token).
+      // Reject objects/arrays/numbers so crafted tokens like { "src1": {"a":1} }
+      // cannot be interpolated into upstream URLs as "[object Object]".
+      for (const val of Object.values(state)) {
+        if (typeof val !== 'string' || val.length === 0) return null;
+      }
       return state;
     } catch {
       return null;

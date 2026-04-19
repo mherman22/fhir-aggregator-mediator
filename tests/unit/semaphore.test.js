@@ -87,4 +87,17 @@ describe('Semaphore', () => {
     await Promise.all(tasks);
     expect(maxConcurrent).toBeLessThanOrEqual(2);
   });
+
+  it('throws on release() underflow (no slot held)', () => {
+    const sem = new Semaphore(2);
+    expect(() => sem.release()).toThrow('release() called more times than acquire()');
+  });
+
+  it('throws on release() underflow after acquiring and releasing all slots', async () => {
+    const sem = new Semaphore(1);
+    await sem.acquire();
+    sem.release();
+    expect(() => sem.release()).toThrow('release() called more times than acquire()');
+  });
+
 });

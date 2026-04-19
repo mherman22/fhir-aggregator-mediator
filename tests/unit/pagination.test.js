@@ -48,6 +48,24 @@ describe('PaginationManager (stateless)', () => {
     expect(pm.getState(arrayToken)).toBeNull();
   });
 
+  it('returns null for a token where a value is an object (not a string)', () => {
+    const badState = { src1: { nested: 'object' } };
+    const token = Buffer.from(JSON.stringify(badState)).toString('base64url');
+    expect(pm.getState(token)).toBeNull();
+  });
+
+  it('returns null for a token where a value is an empty string', () => {
+    const badState = { src1: '' };
+    const token = Buffer.from(JSON.stringify(badState)).toString('base64url');
+    expect(pm.getState(token)).toBeNull();
+  });
+
+  it('returns null for a token where a value is a number', () => {
+    const badState = { src1: 42 };
+    const token = Buffer.from(JSON.stringify(badState)).toString('base64url');
+    expect(pm.getState(token)).toBeNull();
+  });
+
   it('different states produce different tokens', () => {
     const t1 = pm.createToken({ src1: 'a' });
     const t2 = pm.createToken({ src1: 'b' });

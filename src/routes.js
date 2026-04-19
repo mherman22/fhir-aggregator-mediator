@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const { v4: uuidv4 } = require('uuid');
 const aggregator = require('./aggregator');
 const logger = require('./logger');
 
@@ -284,7 +285,6 @@ function createRouter(
   // Correlation ID middleware — generates a UUID per request and attaches it
   // to the request object and response headers for end-to-end tracing.
   router.use((req, res, next) => {
-    const { v4: uuidv4 } = require('uuid');
     req.correlationId = req.headers['x-correlation-id'] || uuidv4();
     res.set('X-Correlation-ID', req.correlationId);
     next();
@@ -346,8 +346,7 @@ function createRouter(
 
     // Validate _getpagesoffset is a non-negative integer
     const rawOffset = req.query._getpagesoffset || '0';
-    const offset = parseInt(rawOffset, 10);
-    if (isNaN(offset) || offset < 0 || String(offset) !== String(parseInt(rawOffset, 10))) {
+    if (!/^(0|[1-9]\d*)$/.test(rawOffset)) {
       return fhirJson(res, 400, {
         resourceType: 'OperationOutcome',
         issue: [
@@ -359,6 +358,7 @@ function createRouter(
         ],
       });
     }
+    const offset = parseInt(rawOffset, 10);
 
     const count = parseCount(req.query._count);
 

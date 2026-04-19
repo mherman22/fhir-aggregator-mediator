@@ -64,10 +64,10 @@ function validateConfig(config) {
     }
     if (config.performance.maxConcurrentUpstreamRequests !== undefined) {
       if (
-        typeof config.performance.maxConcurrentUpstreamRequests !== 'number' ||
+        !Number.isInteger(config.performance.maxConcurrentUpstreamRequests) ||
         config.performance.maxConcurrentUpstreamRequests < 1
       ) {
-        errors.push('performance.maxConcurrentUpstreamRequests must be a positive number');
+        errors.push('performance.maxConcurrentUpstreamRequests must be a positive integer');
       }
     }
     if (config.performance.requestTimeoutMs !== undefined) {

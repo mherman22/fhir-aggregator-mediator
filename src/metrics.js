@@ -53,22 +53,18 @@ function createMetrics() {
     registers: [register],
   });
 
-  // --- Pagination cache metrics ---
-  const paginationCacheSize = new client.Gauge({
-    name: 'pagination_cache_size',
-    help: 'Current number of entries in the pagination LRU cache',
-    registers: [register],
-  });
-
+  // --- Pagination metrics ---
+  // Pagination is now stateless (base64url tokens); there is no server-side
+  // LRU cache. The hit/miss counters track successful vs failed token decodes.
   const paginationCacheHits = new client.Counter({
-    name: 'pagination_cache_hits_total',
-    help: 'Total pagination cache hits',
+    name: 'pagination_token_hits_total',
+    help: 'Total successful pagination token decodes',
     registers: [register],
   });
 
   const paginationCacheMisses = new client.Counter({
-    name: 'pagination_cache_misses_total',
-    help: 'Total pagination cache misses',
+    name: 'pagination_token_misses_total',
+    help: 'Total failed/missing pagination token decodes',
     registers: [register],
   });
 
@@ -109,7 +105,6 @@ function createMetrics() {
     activeRequests,
     upstreamRequestDuration,
     upstreamErrorsTotal,
-    paginationCacheSize,
     paginationCacheHits,
     paginationCacheMisses,
     dedupRemovedTotal,

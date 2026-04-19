@@ -252,6 +252,24 @@ describe('routes', () => {
       expect(res.body.issue[0].diagnostics).toContain('non-negative');
     });
 
+    it('returns 400 for mixed string+number _getpagesoffset (e.g. "1abc")', async () => {
+      const state = { src1: 'abc' };
+      const token = paginationManager.createToken(state);
+      const res = await supertest(app)
+        .get(`/fhir?_getpages=${token}&_getpagesoffset=1abc`)
+        .expect(400);
+      expect(res.body.issue[0].diagnostics).toContain('non-negative');
+    });
+
+    it('returns 400 for scientific-notation _getpagesoffset (e.g. "1e2")', async () => {
+      const state = { src1: 'abc' };
+      const token = paginationManager.createToken(state);
+      const res = await supertest(app)
+        .get(`/fhir?_getpages=${token}&_getpagesoffset=1e2`)
+        .expect(400);
+      expect(res.body.issue[0].diagnostics).toContain('non-negative');
+    });
+
     it('returns X-Correlation-ID header', async () => {
       const res = await supertest(app).get('/fhir/metadata');
       expect(res.headers['x-correlation-id']).toBeTruthy();
