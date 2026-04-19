@@ -14,6 +14,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EXAMPLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_CMD=()
 
 log() {
     echo -e "${BLUE}[$(date +'%H:%M:%S')]${NC} $1"
@@ -31,6 +34,43 @@ error() {
     echo -e "${RED}✗${NC} $1"
 }
 
+resolve_compose_command() {
+    if command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD=(docker-compose)
+    elif docker compose version &> /dev/null; then
+        COMPOSE_CMD=(docker compose)
+    else
+        error "Docker Compose is required but not installed (docker-compose or docker compose plugin)"
+        exit 1
+    fi
+}
+
+compose() {
+    "${COMPOSE_CMD[@]}" "$@"
+}
+
+is_port_in_use() {
+    local port="$1"
+
+    if command -v lsof &> /dev/null; then
+        lsof -iTCP:"$port" -sTCP:LISTEN -Pn &> /dev/null
+        return $?
+    fi
+
+    if command -v ss &> /dev/null; then
+        ss -ltn "( sport = :$port )" 2>/dev/null | grep -q ":$port"
+        return $?
+    fi
+
+    if command -v netstat &> /dev/null; then
+        netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"
+        return $?
+    fi
+
+    warning "Could not verify port $port (install lsof, ss, or netstat for port checks)"
+    return 1
+}
+
 # Check prerequisites
 check_prerequisites() {
     log "Checking prerequisites..."
@@ -40,14 +80,11 @@ check_prerequisites() {
         exit 1
     fi
 
-    if ! command -v docker-compose &> /dev/null; then
-        error "Docker Compose is required but not installed"
-        exit 1
-    fi
+    resolve_compose_command
 
     # Check if ports are available
     for port in 3000 8081 8082 8083; do
-        if lsof -i :$port &> /dev/null; then
+        if is_port_in_use "$port"; then
             error "Port $port is already in use"
             exit 1
         fi
@@ -60,10 +97,10 @@ check_prerequisites() {
 start_services() {
     log "Starting FHIR servers and aggregator..."
 
-    cd "$(dirname "$0")/.."
+    cd "$EXAMPLE_DIR"
 
     # Build and start services
-    docker-compose up -d
+    compose up -d
 
     log "Waiting for services to be healthy..."
 
@@ -72,7 +109,7 @@ start_services() {
     local wait_time=0
 
     while [ $wait_time -lt $max_wait ]; do
-        if docker-compose ps | grep -q "unhealthy\|starting"; then
+        if compose ps | grep -q "unhealthy\|starting"; then
             echo -n "."
             sleep 10
             wait_time=$((wait_time + 10))
@@ -85,7 +122,7 @@ start_services() {
 
     if [ $wait_time -ge $max_wait ]; then
         error "Services did not become healthy within $max_wait seconds"
-        docker-compose ps
+        compose ps
         exit 1
     fi
 
@@ -96,9 +133,7 @@ start_services() {
 load_data() {
     log "Loading sample data to FHIR servers..."
 
-    docker-compose --profile tools run --rm data-loader
-
-    if [ $? -eq 0 ]; then
+    if compose --profile tools run --rm data-loader; then
         success "Sample data loaded successfully"
     else
         error "Failed to load sample data"
@@ -110,9 +145,7 @@ load_data() {
 run_tests() {
     log "Running aggregation tests..."
 
-    docker-compose --profile tools run --rm test-client
-
-    if [ $? -eq 0 ]; then
+    if compose --profile tools run --rm test-client; then
         success "All tests passed"
     else
         warning "Some tests failed - check output above"
@@ -124,7 +157,7 @@ show_status() {
     log "Setup complete! Services are running:"
     echo ""
     echo "📊 Service Status:"
-    docker-compose ps
+    compose ps
     echo ""
     echo "🔗 Available URLs:"
     echo "   FHIR Aggregator:      http://localhost:3000/fhir"
@@ -151,8 +184,9 @@ show_status() {
 # Cleanup function
 cleanup() {
     if [ "$1" = "--cleanup" ]; then
+        cd "$EXAMPLE_DIR"
         log "Stopping and cleaning up services..."
-        docker-compose down -v
+        compose down -v
         success "Cleanup complete"
         exit 0
     fi
@@ -160,6 +194,8 @@ cleanup() {
 
 # Main execution
 main() {
+    cd "$EXAMPLE_DIR"
+
     # Handle cleanup flag
     cleanup "$1"
 
@@ -187,10 +223,10 @@ main() {
     success "Example setup complete! Press Ctrl+C to stop services or run with --cleanup to remove everything."
 
     # Keep running until interrupted
-    trap 'echo ""; log "Shutting down..."; docker-compose down; exit 0' INT
+    trap 'echo ""; log "Shutting down..."; compose down; exit 0' INT
 
     log "Monitoring logs (Ctrl+C to stop)..."
-    docker-compose logs -f fhir-aggregator
+    compose logs -f fhir-aggregator
 }
 
 # Help text

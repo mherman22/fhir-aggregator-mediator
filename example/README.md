@@ -138,6 +138,7 @@ Key settings optimized for testing:
 - Lower circuit breaker thresholds (`failureThreshold: 3`)
 - Reduced timeouts for faster feedback
 - Debug logging enabled
+- OpenHIM settings are placeholders by default (`CHANGE_ME_*`) and should be overridden with `OPENHIM_API_USERNAME`, `OPENHIM_API_PASSWORD`, and `OPENHIM_API_URL` only when integrating with a real OpenHIM instance
 
 ## Testing Scenarios
 

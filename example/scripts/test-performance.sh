@@ -7,9 +7,17 @@ set -e
 
 # Configuration
 AGGREGATOR_URL="http://localhost:3000/fhir"
+AGGREGATOR_BASE_URL="${AGGREGATOR_URL%/fhir}"
+if [[ "$AGGREGATOR_BASE_URL" == "$AGGREGATOR_URL" ]]; then
+    AGGREGATOR_BASE_URL="${AGGREGATOR_URL%/}"
+fi
+METRICS_URL="${AGGREGATOR_BASE_URL}/metrics"
 CONCURRENT_USERS=10
 TEST_DURATION=30
 REQUESTS_PER_USER=50
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EXAMPLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_CMD=()
 
 # Colors
 RED='\033[0;31m'
@@ -32,6 +40,21 @@ warning() {
 
 error() {
     echo -e "${RED}✗${NC} $1"
+}
+
+resolve_compose_command() {
+    if command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD=(docker-compose)
+    elif docker compose version &> /dev/null; then
+        COMPOSE_CMD=(docker compose)
+    else
+        error "Docker Compose is required but not installed (docker-compose or docker compose plugin)"
+        exit 1
+    fi
+}
+
+compose() {
+    "${COMPOSE_CMD[@]}" "$@"
 }
 
 # Check if services are running
@@ -102,9 +125,19 @@ test_concurrent_load() {
         done < "$user_file"
     done
 
-    local avg_response_time=$(echo "scale=3; $total_response_time / $success_count" | bc -l)
-    local requests_per_second=$(echo "scale=2; $total_requests / $total_time" | bc -l)
-    local success_rate=$(echo "scale=2; $success_count * 100 / $total_requests" | bc -l)
+    local avg_response_time="N/A"
+    if (( success_count > 0 )); then
+        avg_response_time=$(echo "scale=3; $total_response_time / $success_count" | bc -l)
+    fi
+
+    local requests_per_second="N/A"
+    if (( total_time > 0 )); then
+        requests_per_second=$(echo "scale=2; $total_requests / $total_time" | bc -l)
+    fi
+    local success_rate="N/A"
+    if (( total_requests > 0 )); then
+        success_rate=$(echo "scale=2; $success_count * 100 / $total_requests" | bc -l)
+    fi
 
     success "Load test completed"
     echo "Results:"
@@ -178,7 +211,7 @@ test_pagination() {
 monitor_metrics() {
     log "Capturing metrics before and after load test..."
 
-    local metrics_before=$(curl -s "$AGGREGATOR_URL/../metrics" 2>/dev/null || echo "")
+    local metrics_before=$(curl -s "$METRICS_URL" 2>/dev/null || echo "")
 
     if [[ -n "$metrics_before" ]]; then
         local requests_before=$(echo "$metrics_before" | grep "http_requests_total" | head -1 | awk '{print $2}' || echo "0")
@@ -194,7 +227,7 @@ monitor_metrics() {
 
     sleep 2  # Let metrics settle
 
-    local metrics_after=$(curl -s "$AGGREGATOR_URL/../metrics" 2>/dev/null || echo "")
+    local metrics_after=$(curl -s "$METRICS_URL" 2>/dev/null || echo "")
 
     if [[ -n "$metrics_after" ]]; then
         local requests_after=$(echo "$metrics_after" | grep "http_requests_total" | head -1 | awk '{print $2}' || echo "0")
@@ -213,7 +246,7 @@ test_degraded_performance() {
     log "Testing performance with one source down..."
 
     # Stop facility C (marked as optional)
-    docker-compose stop hapi-fhir-facility-c 2>/dev/null || true
+    compose stop hapi-fhir-facility-c 2>/dev/null || true
     sleep 5
 
     local start_time=$(date +%s.%N)
@@ -229,7 +262,7 @@ test_degraded_performance() {
     fi
 
     # Restart the service
-    docker-compose start hapi-fhir-facility-c 2>/dev/null || true
+    compose start hapi-fhir-facility-c 2>/dev/null || true
     log "Restarted facility C"
 }
 
@@ -289,6 +322,9 @@ fi
 if ! command -v jq &> /dev/null; then
     warning "jq not found - some features may not work properly"
 fi
+
+cd "$EXAMPLE_DIR"
+resolve_compose_command
 
 # Run the tests
 run_performance_tests

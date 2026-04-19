@@ -233,11 +233,18 @@ function generateCondition(facilityId, patientId, conditionIndex) {
   };
 }
 
-// HTTP client with retry logic
-async function postResource(url, resource, retries = 3) {
+// Upsert FHIR resources with retry logic (PUT when id is provided, POST otherwise)
+async function upsertResource(baseUrl, resource, retries = 3) {
+  const resourceTypeUrl = `${baseUrl}/${resource.resourceType}`;
+  const resourceUrl = resource.id ? `${resourceTypeUrl}/${resource.id}` : resourceTypeUrl;
+
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const response = await axios.post(url, resource, {
+      const method = resource.id ? 'put' : 'post';
+      const response = await axios({
+        method,
+        url: resourceUrl,
+        data: resource,
         headers: {
           'Content-Type': 'application/fhir+json'
         },
@@ -256,7 +263,9 @@ async function postResource(url, resource, retries = 3) {
 
 // Main data loading function
 async function loadDataToFacility(facilityId, baseUrl) {
-  console.log(`\nLoading data to Facility ${facilityId} (${baseUrl})`);
+  const normalizedBaseUrl = baseUrl.replace(/\/$/, '');
+
+  console.log(`\nLoading data to Facility ${facilityId} (${normalizedBaseUrl})`);
   console.log('='.repeat(50));
 
   const resourceCounts = {
@@ -272,7 +281,7 @@ async function loadDataToFacility(facilityId, baseUrl) {
     const patientIds = [];
     for (let i = 1; i <= 10; i++) {
       const patient = generatePatient(facilityId, i);
-      await postResource(baseUrl, patient);
+      await upsertResource(normalizedBaseUrl, patient);
       patientIds.push(patient.id);
       resourceCounts.Patient++;
       process.stdout.write(`.`);
@@ -286,7 +295,7 @@ async function loadDataToFacility(facilityId, baseUrl) {
       const patientId = patientIds[patientIndex];
       for (let e = 1; e <= 3; e++) {
         const encounter = generateEncounter(facilityId, patientId, patientIndex * 3 + e);
-        await postResource(baseUrl, encounter);
+        await upsertResource(normalizedBaseUrl, encounter);
         encounterIds.push({ encounterId: encounter.id, patientId });
         resourceCounts.Encounter++;
         process.stdout.write(`.`);
@@ -300,7 +309,7 @@ async function loadDataToFacility(facilityId, baseUrl) {
       const { encounterId, patientId } = encounterIds[i];
       for (let o = 1; o <= 2; o++) {
         const observation = generateObservation(facilityId, patientId, encounterId, i * 2 + o);
-        await postResource(baseUrl, observation);
+        await upsertResource(normalizedBaseUrl, observation);
         resourceCounts.Observation++;
         process.stdout.write(`.`);
       }
@@ -313,7 +322,7 @@ async function loadDataToFacility(facilityId, baseUrl) {
       const patientId = patientIds[patientIndex];
       if (patientIndex % 2 === 0) { // Only some patients have conditions
         const condition = generateCondition(facilityId, patientId, patientIndex);
-        await postResource(baseUrl, condition);
+        await upsertResource(normalizedBaseUrl, condition);
         resourceCounts.Condition++;
         process.stdout.write(`.`);
       }

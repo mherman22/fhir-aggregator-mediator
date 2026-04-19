@@ -4,9 +4,9 @@
   },
   "mediator": {
     "api": {
-      "username": "root@openhim.org",
-      "password": "instant101",
-      "apiURL": "https://openhim-core:8080",
+      "username": "CHANGE_ME_OPENHIM_USERNAME",
+      "password": "CHANGE_ME_OPENHIM_PASSWORD",
+      "apiURL": "CHANGE_ME_OPENHIM_API_URL",
       "trustSelfSigned": true,
       "urn": "urn:mediator:fhir-aggregator-example"
     }

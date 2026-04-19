@@ -15,12 +15,30 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 AGGREGATOR_URL="http://localhost:3000"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EXAMPLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_CMD=()
 
 # Function to wait for user input
 wait_for_user() {
     echo ""
     read -p "Press Enter to continue..." -r
     echo ""
+}
+
+resolve_compose_command() {
+    if command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD=(docker-compose)
+    elif docker compose version &> /dev/null; then
+        COMPOSE_CMD=(docker compose)
+    else
+        echo -e "${RED}Error: Docker Compose is required (docker-compose or docker compose plugin)${NC}"
+        exit 1
+    fi
+}
+
+compose() {
+    "${COMPOSE_CMD[@]}" "$@"
 }
 
 # Function to run a command with explanation
@@ -45,10 +63,13 @@ demo_command() {
 
 # Function to show a section header
 section_header() {
+    local separator=""
+    printf -v separator '=%.0s' {1..60}
+
     echo ""
-    echo -e "${PURPLE}$('='*60)${NC}"
+    echo -e "${PURPLE}${separator}${NC}"
     echo -e "${PURPLE} $1${NC}"
-    echo -e "${PURPLE}$('='*60)${NC}"
+    echo -e "${PURPLE}${separator}${NC}"
     echo ""
 }
 
@@ -67,6 +88,9 @@ check_setup() {
 
 # Main demo
 main() {
+    cd "$EXAMPLE_DIR"
+    resolve_compose_command
+
     clear
     echo -e "${GREEN}🚀 FHIR Aggregator Mediator - Interactive Demo${NC}"
     echo -e "${GREEN}===============================================${NC}"
@@ -162,7 +186,7 @@ main() {
     echo "We'll temporarily stop Facility C (marked as optional in config)."
 
     echo -e "${YELLOW}Stopping Facility C...${NC}"
-    docker-compose stop hapi-fhir-facility-c > /dev/null 2>&1 || true
+    compose stop hapi-fhir-facility-c > /dev/null 2>&1 || true
     sleep 3
 
     demo_command \
@@ -177,7 +201,7 @@ main() {
         "curl -s $AGGREGATOR_URL/health | jq '.sources[] | {name: .name, status: .status, circuit_breaker: .circuitBreaker.state}'"
 
     echo -e "${YELLOW}Restarting Facility C...${NC}"
-    docker-compose start hapi-fhir-facility-c > /dev/null 2>&1 || true
+    compose start hapi-fhir-facility-c > /dev/null 2>&1 || true
     sleep 5
 
     # Section 7: Performance Metrics

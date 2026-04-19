@@ -25,7 +25,7 @@ services:
 
   # HAPI FHIR Server - Facility A (Hospital)
   hapi-fhir-facility-a:
-    image: hapiproject/hapi:latest
+    image: hapiproject/hapi:v6.10.0
     ports:
       - "8081:8080"
     environment:
@@ -46,7 +46,7 @@ services:
 
   # HAPI FHIR Server - Facility B (Clinic)
   hapi-fhir-facility-b:
-    image: hapiproject/hapi:latest
+    image: hapiproject/hapi:v6.10.0
     ports:
       - "8082:8080"
     environment:
@@ -67,7 +67,7 @@ services:
 
   # HAPI FHIR Server - Facility C (Rural Health Center)
   hapi-fhir-facility-c:
-    image: hapiproject/hapi:latest
+    image: hapiproject/hapi:v6.10.0
     ports:
       - "8083:8080"
     environment:
