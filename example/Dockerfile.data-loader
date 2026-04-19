@@ -1,0 +1,24 @@
+FROM node:22-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY data-loader/package*.json ./
+RUN npm ci --only=production
+
+# Copy data loader source
+COPY data-loader/ ./
+
+# Wait for services script
+RUN apk add --no-cache curl
+
+# Create wait script
+RUN echo '#!/bin/sh' > /app/wait-for-services.sh && \
+    echo 'echo "Waiting for FHIR servers to be ready..."' >> /app/wait-for-services.sh && \
+    echo 'until curl -s $FACILITY_A_URL/metadata > /dev/null; do echo "Waiting for Facility A..."; sleep 5; done' >> /app/wait-for-services.sh && \
+    echo 'until curl -s $FACILITY_B_URL/metadata > /dev/null; do echo "Waiting for Facility B..."; sleep 5; done' >> /app/wait-for-services.sh && \
+    echo 'until curl -s $FACILITY_C_URL/metadata > /dev/null; do echo "Waiting for Facility C..."; sleep 5; done' >> /app/wait-for-services.sh && \
+    echo 'echo "All FHIR servers are ready!"' >> /app/wait-for-services.sh && \
+    chmod +x /app/wait-for-services.sh
+
+CMD ["/bin/sh", "-c", "/app/wait-for-services.sh && node load-data.js"]

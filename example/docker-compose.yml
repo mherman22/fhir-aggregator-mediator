@@ -1,0 +1,128 @@
+version: '3.8'
+
+services:
+  # FHIR Aggregator Mediator
+  fhir-aggregator:
+    build: ..
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config:/app/config
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+    depends_on:
+      - hapi-fhir-facility-a
+      - hapi-fhir-facility-b
+      - hapi-fhir-facility-c
+    networks:
+      - fhir-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # HAPI FHIR Server - Facility A (Hospital)
+  hapi-fhir-facility-a:
+    image: hapiproject/hapi:latest
+    ports:
+      - "8081:8080"
+    environment:
+      - HAPI_FHIR_SERVER_NAME=Facility A Hospital
+      - HAPI_FHIR_VALIDATION_REQUESTS_ENABLED=false
+      - HAPI_FHIR_OPENAPI_ENABLED=true
+      - HAPI_FHIR_CORS_ENABLED=true
+      - HAPI_FHIR_CORS_ALLOWED_ORIGIN=*
+    volumes:
+      - hapi-data-a:/data/hapi
+    networks:
+      - fhir-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/fhir/metadata || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # HAPI FHIR Server - Facility B (Clinic)
+  hapi-fhir-facility-b:
+    image: hapiproject/hapi:latest
+    ports:
+      - "8082:8080"
+    environment:
+      - HAPI_FHIR_SERVER_NAME=Facility B Clinic
+      - HAPI_FHIR_VALIDATION_REQUESTS_ENABLED=false
+      - HAPI_FHIR_OPENAPI_ENABLED=true
+      - HAPI_FHIR_CORS_ENABLED=true
+      - HAPI_FHIR_CORS_ALLOWED_ORIGIN=*
+    volumes:
+      - hapi-data-b:/data/hapi
+    networks:
+      - fhir-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/fhir/metadata || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # HAPI FHIR Server - Facility C (Rural Health Center)
+  hapi-fhir-facility-c:
+    image: hapiproject/hapi:latest
+    ports:
+      - "8083:8080"
+    environment:
+      - HAPI_FHIR_SERVER_NAME=Facility C Rural Health Center
+      - HAPI_FHIR_VALIDATION_REQUESTS_ENABLED=false
+      - HAPI_FHIR_OPENAPI_ENABLED=true
+      - HAPI_FHIR_CORS_ENABLED=true
+      - HAPI_FHIR_CORS_ALLOWED_ORIGIN=*
+    volumes:
+      - hapi-data-c:/data/hapi
+    networks:
+      - fhir-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/fhir/metadata || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Test Data Loader - Populates FHIR servers with sample data
+  data-loader:
+    build:
+      context: .
+      dockerfile: Dockerfile.data-loader
+    depends_on:
+      - hapi-fhir-facility-a
+      - hapi-fhir-facility-b
+      - hapi-fhir-facility-c
+    networks:
+      - fhir-network
+    profiles:
+      - tools
+    environment:
+      - FACILITY_A_URL=http://hapi-fhir-facility-a:8080/fhir
+      - FACILITY_B_URL=http://hapi-fhir-facility-b:8080/fhir
+      - FACILITY_C_URL=http://hapi-fhir-facility-c:8080/fhir
+
+  # Test Client - Demonstrates aggregation functionality
+  test-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-client
+    depends_on:
+      - fhir-aggregator
+    networks:
+      - fhir-network
+    profiles:
+      - tools
+    environment:
+      - AGGREGATOR_URL=http://fhir-aggregator:3000/fhir
+
+volumes:
+  hapi-data-a:
+  hapi-data-b:
+  hapi-data-c:
+
+networks:
+  fhir-network:
+    driver: bridge

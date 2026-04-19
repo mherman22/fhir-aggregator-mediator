@@ -1,0 +1,82 @@
+{
+  "app": {
+    "port": 3000
+  },
+  "mediator": {
+    "api": {
+      "username": "root@openhim.org",
+      "password": "instant101",
+      "apiURL": "https://openhim-core:8080",
+      "trustSelfSigned": true,
+      "urn": "urn:mediator:fhir-aggregator-example"
+    }
+  },
+  "sources": [
+    {
+      "id": "facility_a_hospital",
+      "name": "Facility A - General Hospital",
+      "baseUrl": "http://hapi-fhir-facility-a:8080/fhir",
+      "username": "",
+      "password": "",
+      "optional": false
+    },
+    {
+      "id": "facility_b_clinic",
+      "name": "Facility B - Community Clinic",
+      "baseUrl": "http://hapi-fhir-facility-b:8080/fhir",
+      "username": "",
+      "password": "",
+      "optional": false
+    },
+    {
+      "id": "facility_c_rural",
+      "name": "Facility C - Rural Health Center",
+      "baseUrl": "http://hapi-fhir-facility-c:8080/fhir",
+      "username": "",
+      "password": "",
+      "optional": true
+    }
+  ],
+  "pagination": {
+    "cacheMaxSize": 1000,
+    "cacheTtlMs": 3600000
+  },
+  "cluster": {
+    "enabled": false,
+    "workers": 0
+  },
+  "performance": {
+    "timeoutMs": 30000,
+    "requestTimeoutMs": 120000,
+    "maxSocketsPerSource": 5,
+    "maxConcurrentUpstreamRequests": 20,
+    "rejectUnauthorized": true,
+    "maxRetries": 3,
+    "initialDelayMs": 500,
+    "maxDelayMs": 5000
+  },
+  "circuitBreaker": {
+    "failureThreshold": 3,
+    "resetTimeoutMs": 30000
+  },
+  "rateLimiting": {
+    "enabled": true,
+    "windowMs": 60000,
+    "maxRequests": 100
+  },
+  "compression": {
+    "enabled": true,
+    "threshold": 1024
+  },
+  "inboundAuth": {
+    "enabled": false,
+    "type": "basic",
+    "username": "demo",
+    "password": "demo123"
+  },
+  "tls": {
+    "enabled": false,
+    "certFile": "",
+    "keyFile": ""
+  }
+}

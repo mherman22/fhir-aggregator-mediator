@@ -1,0 +1,13 @@
+{
+  "name": "fhir-aggregator-data-loader",
+  "version": "1.0.0",
+  "description": "Sample data loader for FHIR aggregator example",
+  "main": "load-data.js",
+  "scripts": {
+    "start": "node load-data.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "uuid": "^9.0.0"
+  }
+}
