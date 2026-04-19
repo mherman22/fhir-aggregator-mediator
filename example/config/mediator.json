@@ -1,0 +1,35 @@
+{
+  "urn": "urn:mediator:fhir-aggregator-example",
+  "version": "1.0.0",
+  "name": "FHIR Aggregator Example",
+  "description": "Example setup demonstrating FHIR aggregation from multiple test facilities",
+  "endpoints": [
+    {
+      "name": "FHIR Aggregator Example",
+      "host": "fhir-aggregator",
+      "port": 3000,
+      "path": "/fhir",
+      "type": "http"
+    }
+  ],
+  "defaultChannelConfig": [
+    {
+      "name": "FHIR Aggregator Example Channel",
+      "urlPattern": "^/aggregated-fhir.*$",
+      "methods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+      "routes": [
+        {
+          "name": "FHIR Aggregator Route",
+          "host": "fhir-aggregator",
+          "port": 3000,
+          "path": "/fhir",
+          "pathTransform": "s/\\/aggregated-fhir/\\/fhir/g",
+          "primary": true,
+          "type": "http"
+        }
+      ],
+      "allow": ["demo-client"],
+      "type": "http"
+    }
+  ]
+}
