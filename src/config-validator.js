@@ -44,6 +44,14 @@ function validateConfig(config) {
           errors.push(`sources[${i}].baseUrl "${source.baseUrl}" is not a valid URL`);
         }
       }
+
+      if (source.optional !== undefined && typeof source.optional !== 'boolean') {
+        errors.push(`sources[${i}].optional must be a boolean`);
+      }
+
+      if (source.bearerToken !== undefined && typeof source.bearerToken !== 'string') {
+        errors.push(`sources[${i}].bearerToken must be a string`);
+      }
     });
   }
 
@@ -85,6 +93,66 @@ function validateConfig(config) {
     errors.push('strictMode must be a boolean');
   }
 
+  // writeTarget (optional string — must reference an existing source ID)
+  if (config.writeTarget !== undefined) {
+    if (typeof config.writeTarget !== 'string') {
+      errors.push('writeTarget must be a string (source ID)');
+    } else if (Array.isArray(config.sources) && config.sources.length > 0) {
+      const ids = config.sources.map((s) => s.id);
+      if (!ids.includes(config.writeTarget)) {
+        errors.push(`writeTarget "${config.writeTarget}" does not match any source id`);
+      }
+    }
+  }
+
+  // inboundAuth (optional)
+  if (config.inboundAuth !== undefined) {
+    if (typeof config.inboundAuth !== 'object' || config.inboundAuth === null) {
+      errors.push('inboundAuth must be an object');
+    } else {
+      const ia = config.inboundAuth;
+      if (ia.enabled !== undefined && typeof ia.enabled !== 'boolean') {
+        errors.push('inboundAuth.enabled must be a boolean');
+      }
+      if (ia.type !== undefined && !['basic', 'apikey'].includes(ia.type)) {
+        errors.push('inboundAuth.type must be "basic" or "apikey"');
+      }
+      if (ia.enabled && ia.type === 'basic') {
+        if (!ia.username || typeof ia.username !== 'string') {
+          errors.push('inboundAuth.username is required for basic auth');
+        }
+        if (!ia.password || typeof ia.password !== 'string') {
+          errors.push('inboundAuth.password is required for basic auth');
+        }
+      }
+      if (ia.enabled && ia.type === 'apikey') {
+        if (!ia.apiKey || typeof ia.apiKey !== 'string') {
+          errors.push('inboundAuth.apiKey is required for apikey auth');
+        }
+      }
+    }
+  }
+
+  // tls (optional)
+  if (config.tls !== undefined) {
+    if (typeof config.tls !== 'object' || config.tls === null) {
+      errors.push('tls must be an object');
+    } else {
+      const tls = config.tls;
+      if (tls.enabled !== undefined && typeof tls.enabled !== 'boolean') {
+        errors.push('tls.enabled must be a boolean');
+      }
+      if (tls.enabled) {
+        if (!tls.certFile || typeof tls.certFile !== 'string') {
+          errors.push('tls.certFile is required when tls.enabled is true');
+        }
+        if (!tls.keyFile || typeof tls.keyFile !== 'string') {
+          errors.push('tls.keyFile is required when tls.enabled is true');
+        }
+      }
+    }
+  }
+
   // pagination (optional — kept for config compatibility; stateless tokens do not use these)
   if (config.pagination) {
     if (config.pagination.cacheMaxSize !== undefined) {
@@ -117,14 +185,16 @@ function applyEnvOverrides(config) {
     config.app.port = parseInt(process.env.APP_PORT, 10);
   }
 
-  // Source credentials
+  // Source credentials (including bearer token)
   config.sources.forEach((source) => {
     const envUser = process.env[`SOURCE_${source.id}_USERNAME`];
     const envPass = process.env[`SOURCE_${source.id}_PASSWORD`];
     const envUrl = process.env[`SOURCE_${source.id}_URL`];
+    const envToken = process.env[`SOURCE_${source.id}_BEARER_TOKEN`];
     if (envUser !== undefined) source.username = envUser;
     if (envPass !== undefined) source.password = envPass;
     if (envUrl !== undefined) source.baseUrl = envUrl;
+    if (envToken !== undefined) source.bearerToken = envToken;
   });
 
   // Full sources override via JSON env var
@@ -193,6 +263,49 @@ function applyEnvOverrides(config) {
   if (process.env.RATE_LIMIT_MAX_REQUESTS) {
     config.rateLimiting = config.rateLimiting || {};
     config.rateLimiting.maxRequests = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10);
+  }
+
+  // Inbound auth settings
+  if (process.env.INBOUND_AUTH_TYPE) {
+    config.inboundAuth = config.inboundAuth || {};
+    config.inboundAuth.enabled = true;
+    config.inboundAuth.type = process.env.INBOUND_AUTH_TYPE;
+  }
+  if (process.env.INBOUND_AUTH_USERNAME) {
+    config.inboundAuth = config.inboundAuth || {};
+    config.inboundAuth.username = process.env.INBOUND_AUTH_USERNAME;
+  }
+  if (process.env.INBOUND_AUTH_PASSWORD) {
+    config.inboundAuth = config.inboundAuth || {};
+    config.inboundAuth.password = process.env.INBOUND_AUTH_PASSWORD;
+  }
+  if (process.env.INBOUND_AUTH_API_KEY) {
+    config.inboundAuth = config.inboundAuth || {};
+    config.inboundAuth.apiKey = process.env.INBOUND_AUTH_API_KEY;
+  }
+  if (process.env.INBOUND_AUTH_HEADER) {
+    config.inboundAuth = config.inboundAuth || {};
+    config.inboundAuth.header = process.env.INBOUND_AUTH_HEADER;
+  }
+
+  // TLS settings
+  if (process.env.TLS_CERT_FILE) {
+    config.tls = config.tls || {};
+    config.tls.enabled = true;
+    config.tls.certFile = process.env.TLS_CERT_FILE;
+  }
+  if (process.env.TLS_KEY_FILE) {
+    config.tls = config.tls || {};
+    config.tls.keyFile = process.env.TLS_KEY_FILE;
+  }
+  if (process.env.TLS_PASSPHRASE) {
+    config.tls = config.tls || {};
+    config.tls.passphrase = process.env.TLS_PASSPHRASE;
+  }
+
+  // Write target
+  if (process.env.WRITE_TARGET) {
+    config.writeTarget = process.env.WRITE_TARGET;
   }
 
   return config;

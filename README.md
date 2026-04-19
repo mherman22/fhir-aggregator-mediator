@@ -2,11 +2,16 @@
 
 An [OpenHIM](https://openhim.org/) mediator that aggregates FHIR R4 search results from multiple FHIR servers into a single endpoint. Designed for use with [google/fhir-data-pipes](https://github.com/google/fhir-data-pipes) to sync data from multiple sources to a shared FHIR store through a single pipeline.
 
-> **Note:** This component is intended for **demo/test environments** where multiple EMR instances run on a single machine sharing one data pipeline. In production, each facility runs its own pipeline instance pointing at its own EMR — the aggregator is not needed. See [Production vs Demo Architecture](#production-vs-demo-architecture) below.
-
 ## Problem
 
-google/fhir-data-pipes supports a single `fhirServerUrl` as its data source. In **demo/test setups** where multiple EMR instances run on one machine, you'd need to run a separate pipeline instance per server. This mediator presents all servers as a single FHIR endpoint, allowing one pipeline to sync data from all instances.
+[google/fhir-data-pipes](https://github.com/google/fhir-data-pipes) supports a single `fhirServerUrl` as its data source. When you have **multiple FHIR servers** you'd traditionally need to run a separate pipeline instance per server — one for each EMR, facility, or data source. At scale (10, 20, or more sources) this quickly becomes an operational burden: 20 sources means 20 separate pipeline processes to deploy, monitor, tune, and upgrade.
+
+This mediator solves that by presenting all your FHIR servers as **a single FHIR endpoint** so one pipeline can sync data from all of them.
+
+It is designed for two complementary scenarios:
+
+- **Centralized aggregation** — a national health information exchange, shared health record (SHR), or analytics platform that pulls from many facility-level EMRs without running a separate pipeline per facility.
+- **Demo / test environments** — multiple EMR instances running on a single machine sharing one pipeline.
 
 ## Compatible Sources
 
@@ -613,41 +618,172 @@ k6 run load-tests/k6-load-test.js
 
 SLOs: p95 < 2s, p99 < 5s, error rate < 1%.
 
-## Production vs Demo Architecture
+## Architecture Scenarios
 
-### Production (each site has its own pipeline)
+### Scenario A — Centralized aggregation (recommended for 10+ sources)
 
-In production, each facility is a self-contained site with intermittent internet. Each site runs its own pipeline **No aggregator needed.**
-
-### Demo/Test (multiple instances on one machine)
-
-In demo/test environments, multiple iSantePlus instances run on a single machine with one shared pipeline. The aggregator presents all instances as one FHIR endpoint.
+A national HIE or analytics platform runs **one pipeline** and **one aggregator** that fans out to all facility EMRs. This replaces N separate pipeline deployments with a single, observable, operationally-managed service.
 
 ```
-┌─────────────────────────────────────┐
-│         Single Machine              │
-│                                     │
-│  iSantePlus 1 ──┐                   │
-│                 ├──→ Aggregator     │
-│  iSantePlus 2 ──┘     (:3000)      │
-│                          │          │
-│                       Pipeline      │
-│                          │          │
-│                       OpenHIM       │
-│                       OpenCR        │
-│                       SHR Mediator  │
-│                       HAPI FHIR     │
-└─────────────────────────────────────┘
+  EMR Site 1 ─────────────────────────────────────────────┐
+  EMR Site 2 ──────────────────────────────────────────┐  │
+  EMR Site 3 ───────────────────────────────────────┐  │  │
+  ...                                               │  │  │
+  EMR Site 20 ─────────────────────────────────┐   │  │  │
+                                               ▼   ▼  ▼  ▼
+                              ┌─────────────────────────────┐
+              ┌────────────── │   FHIR Aggregator Mediator  │
+              │               │   (fans out, merges, pages) │
+              │               └─────────────────────────────┘
+              │                              ▲
+              ▼                              │ (OpenHIM, optional)
+  ┌─────────────────────┐                   │
+  │  fhir-data-pipes    │───────────────────┘
+  │  (one instance)     │
+  └─────────────────────┘
+              │
+              ▼
+  ┌─────────────────────┐
+  │  Shared FHIR Store  │
+  │  (SHR / HAPI FHIR)  │
+  └─────────────────────┘
 ```
+
+### Scenario B — Per-site pipeline (when sites are self-contained)
+
+Each facility is a standalone site with intermittent internet that manages its own data sync. The aggregator adds no value here — each site just needs its own pipeline pointing at its own EMR.
+
+### Scenario C — Demo / test (multiple instances on one machine)
+
+Multiple EMR instances run on a single machine sharing one pipeline. The aggregator presents all instances as one FHIR endpoint. Useful for training, integration testing, and demos.
 
 ### When to Use the Aggregator
 
 | Scenario | Aggregator? |
 |----------|-------------|
-| Production: one iSantePlus per site, each with its own pipeline | **No** |
-| Demo/test: multiple iSantePlus on one machine, one pipeline | **Yes** |
+| Centralized analytics: N facility EMRs → one pipeline → one SHR/data lake | **Yes** |
+| National HIE: pull from 10–20+ facility FHIR servers centrally | **Yes** |
+| Demo/test: multiple EMR instances on one machine, one pipeline | **Yes** |
 | Development: testing pipeline against multiple data sources | **Yes** |
 | Training: simulating multi-facility setup on a laptop | **Yes** |
+| Per-site deployment: each facility runs its own self-contained pipeline | No |
+
+---
+
+## Production Readiness for Large-Scale Deployments (10–20+ Sources)
+
+The mediator ships with production-grade features. When deploying against many sources, work through this checklist.
+
+### ✅ Core features — already implemented
+
+| Feature | Implementation |
+|---------|---------------|
+| Parallel fan-out to all sources | `aggregator.js` — `Promise.all()` across N sources |
+| Per-source circuit breaker | `circuit-breaker.js` — CLOSED → OPEN → HALF-OPEN; skips failed sources immediately |
+| Retry with exponential backoff + jitter | `fhir-client.js` — `axios-retry`, retries on 502/503/504 and network errors |
+| Upstream concurrency limiting (semaphore) | `semaphore.js` — caps in-flight upstream requests across all sources |
+| Connection pooling + keep-alive | `fhir-client.js` — per-source `http.Agent`/`https.Agent` |
+| Stateless pagination (replica-safe) | `pagination.js` — base64url-encoded tokens, no server-side state |
+| Prometheus metrics | `metrics.js` + `/metrics` — request/upstream latency histograms, error counters |
+| Structured JSON logging + correlation IDs | `logger.js` (pino) — every request gets a UUID |
+| Health + readiness probes | `/health` (liveness), `/ready` (readiness) |
+| Node.js clustering (multi-core) | `cluster.js` — forks one worker per CPU core |
+| Kubernetes manifests | `k8s/deployment.yaml` — Deployment, Service, HPA (2–10 replicas), PDB |
+| Security headers | `helmet` middleware |
+| Response compression | `compression` middleware |
+| Full configuration via env vars | `config-validator.js` — all settings overridable |
+| Config validation at startup | Fails fast with clear errors on bad config |
+| Non-root Docker container | Node 22-alpine + `USER node` |
+
+### 🔧 Configuration tuning for 20 sources
+
+**1. Set the upstream concurrency semaphore**
+
+Without this, each inbound request fans out to all 20 sources simultaneously. Under burst load, that multiplies to hundreds of concurrent upstream calls:
+
+```json
+"performance": {
+  "maxConcurrentUpstreamRequests": 60
+}
+```
+
+Start at `3 × source-count` and adjust based on upstream capacity.
+
+**2. Tune sockets per source**
+
+```json
+"performance": {
+  "maxSocketsPerSource": 10
+}
+```
+
+With 20 sources at 10 sockets each you can sustain 200 concurrent upstream TCP connections. Scale down if sources are resource-constrained.
+
+**3. Configure circuit breaker thresholds**
+
+```json
+"circuitBreaker": {
+  "failureThreshold": 5,
+  "resetTimeoutMs": 30000
+}
+```
+
+With 20 sources, more circuits can open simultaneously during a degraded event. Set `failureThreshold` low enough to open quickly but high enough to avoid flapping.
+
+**4. Right-size the container**
+
+The default `512Mi` / `0.5 CPU` is fine for a handful of sources but may be tight when merging large bundles from 20 sources in parallel. For 20 sources with `_count=200`:
+
+```yaml
+resources:
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+  limits:
+    cpu: "1500m"
+    memory: "1536Mi"
+```
+
+Monitor `container_memory_working_set_bytes` and adjust.
+
+**5. Set a realistic per-source timeout**
+
+With 20 sources the total response time is bounded by the *slowest* source (they run in parallel). Set `timeoutMs` to match your worst-case source:
+
+```json
+"performance": {
+  "timeoutMs": 45000
+}
+```
+
+Pair this with circuit breaker — once a source trips its circuit, it is skipped with no timeout cost.
+
+**6. Check your pagination token URL length**
+
+Stateless tokens encode one `_getpages` token per active source. For 20 sources the base64url token is typically 1–2 KB — well within standard HTTP URL limits (8 KB). Verify your reverse proxy / load balancer limit if you use very long upstream tokens.
+
+### 🔒 Security checklist
+
+- [x] **Inbound auth** — enable Basic Auth or API-key protection via `config.inboundAuth` (or the `INBOUND_AUTH_*` environment variables). Rate limiting is automatically enforced before auth to prevent brute-force attacks.
+- [x] **TLS** — native HTTPS is supported: set `config.tls.enabled = true` and point `certFile`/`keyFile` at your certificate files (or use `TLS_CERT_FILE` / `TLS_KEY_FILE` env vars). Alternatively, terminate TLS at your reverse proxy or OpenHIM Core.
+- [x] **Secrets management** — use Kubernetes Secrets + `envFrom` for source credentials (`SOURCE_{id}_PASSWORD`, `SOURCE_{id}_USERNAME`, `SOURCE_{id}_BEARER_TOKEN`). `config.json` no longer ships with any credentials. The mediator warns at startup if a source has an empty password and no bearer token.
+- [ ] **`rejectUnauthorized`** — leave `true` (default) unless upstream servers use self-signed certificates.
+- [ ] **Rate limiting** — configure `rateLimiting.maxRequests` to match your expected pipeline request rate. When inbound auth is enabled, rate limiting is always active (default: 100 req/min per IP).
+
+### 📊 Observability checklist
+
+- [x] **Prometheus scrape** — Kubernetes pod annotations (`prometheus.io/scrape: "true"`, `prometheus.io/path: "/metrics"`, `prometheus.io/port: "3000"`) are set in `k8s/deployment.yaml`. Add `/metrics` to your Prometheus scrape config for non-k8s deployments.
+- [x] **Alert rules** — `k8s/prometheus-rules.yaml` ships a `PrometheusRule` CRD with alerts for upstream error spikes, p99/critical latency SLO breaches, inbound 5xx rate, and pod availability. Apply with `kubectl apply -f k8s/prometheus-rules.yaml`.
+- [ ] **Alert on failed sources** — monitor the `X-Aggregator-Sources-Failed-Count` header in your pipeline logs, or scrape the `/health` JSON.
+- [ ] **Log aggregation** — ship pino JSON logs to your log platform (ELK, Loki, CloudWatch). Filter on `correlationId` to trace a single pipeline request end-to-end.
+
+### ⚠️ Known limitations
+
+| Limitation | Details |
+|------------|---------|
+| No clinical deduplication | The mediator removes exact-ID duplicates (to prevent HAPI transaction bundle rejection) but does **not** perform patient/encounter matching. If the same real patient exists in two sources with different IDs, both records appear in the output. Route through [OpenCR](https://github.com/intrahealth/client-registry) for patient matching. |
+| Optional sources | Sources marked `optional: true` are allowed to fail at startup — the mediator logs a warning and continues. Required sources still cause a startup retry loop (15 min). |
+| Write proxy is single-target | Write operations (`POST`, `PUT`, `PATCH`, `DELETE`) are routed to a single `writeTarget` source. Set `config.writeTarget` (or `WRITE_TARGET` env var) to the source ID that should receive writes. Fan-out writes to all sources are not supported. |
 
 ## Releasing
 

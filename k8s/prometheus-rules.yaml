@@ -1,0 +1,145 @@
+# Prometheus alerting rules for the FHIR Aggregator Mediator.
+#
+# Apply with:
+#   kubectl apply -f k8s/prometheus-rules.yaml
+#
+# Requires the Prometheus Operator (https://prometheus-operator.dev/) to be
+# installed in your cluster.  Adjust `namespace` and label selectors to match
+# your Prometheus Operator configuration.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fhir-aggregator-alerts
+  labels:
+    app: fhir-aggregator
+    # Adjust this label if your Prometheus Operator uses a different selector.
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: fhir-aggregator.upstream
+      interval: 30s
+      rules:
+        # ---------------------------------------------------------------
+        # Circuit-breaker / upstream error spike
+        # Alert when upstream errors to any single source exceed 5 in 5 min.
+        # This typically indicates a tripped circuit breaker.
+        # ---------------------------------------------------------------
+        - alert: FhirAggregatorUpstreamErrorSpike
+          expr: |
+            increase(upstream_errors_total[5m]) > 5
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High upstream error rate for source {{ $labels.source_id }}"
+            description: >
+              Source {{ $labels.source_id }} generated {{ $value | printf "%.0f" }} errors
+              in the last 5 minutes (error_type={{ $labels.error_type }}).
+              Check /health for circuit breaker state.
+            runbook_url: "https://github.com/mherman22/fhir-aggregator-mediator#source-health-monitoring-1"
+
+        # ---------------------------------------------------------------
+        # p99 upstream latency SLO breach
+        # Alert when the 99th percentile upstream request latency exceeds 5 s.
+        # ---------------------------------------------------------------
+        - alert: FhirAggregatorUpstreamHighLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum by (source_id, le) (
+                rate(upstream_request_duration_seconds_bucket[5m])
+              )
+            ) > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p99 upstream latency > 5 s for source {{ $labels.source_id }}"
+            description: >
+              The 99th-percentile upstream request latency to source {{ $labels.source_id }}
+              has been above 5 seconds for 5 minutes.  This may slow pipeline throughput.
+            runbook_url: "https://github.com/mherman22/fhir-aggregator-mediator#setup--configuration-guide"
+
+        # ---------------------------------------------------------------
+        # p99 upstream latency critical
+        # Alert when p99 upstream latency exceeds 30 s (pipeline timeout risk).
+        # ---------------------------------------------------------------
+        - alert: FhirAggregatorUpstreamCriticalLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum by (source_id, le) (
+                rate(upstream_request_duration_seconds_bucket[5m])
+              )
+            ) > 30
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "p99 upstream latency > 30 s for source {{ $labels.source_id }}"
+            description: >
+              The 99th-percentile upstream request latency to source {{ $labels.source_id }}
+              has exceeded 30 seconds.  Pipeline requests may time out.
+            runbook_url: "https://github.com/mherman22/fhir-aggregator-mediator#setup--configuration-guide"
+
+    - name: fhir-aggregator.inbound
+      interval: 30s
+      rules:
+        # ---------------------------------------------------------------
+        # p95 inbound latency SLO breach (SLO: p95 < 2 s)
+        # ---------------------------------------------------------------
+        - alert: FhirAggregatorInboundHighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum by (route, le) (
+                rate(http_request_duration_seconds_bucket[5m])
+              )
+            ) > 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p95 inbound latency > 2 s on {{ $labels.route }}"
+            description: >
+              The 95th-percentile inbound request latency on {{ $labels.route }}
+              has exceeded the 2-second SLO for 5 minutes.
+            runbook_url: "https://github.com/mherman22/fhir-aggregator-mediator#load-testing"
+
+        # ---------------------------------------------------------------
+        # High inbound error rate (5xx)
+        # Alert when more than 5 % of inbound requests fail with 5xx in 5 min.
+        # ---------------------------------------------------------------
+        - alert: FhirAggregatorHighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+              /
+              sum(rate(http_requests_total[5m]))
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Inbound 5xx error rate > 5 %"
+            description: >
+              More than 5 % of inbound requests to the FHIR Aggregator are returning
+              5xx errors over the last 5 minutes.
+            runbook_url: "https://github.com/mherman22/fhir-aggregator-mediator#error-handling"
+
+    - name: fhir-aggregator.availability
+      interval: 60s
+      rules:
+        # ---------------------------------------------------------------
+        # Pod availability — fewer than minAvailable replicas ready
+        # ---------------------------------------------------------------
+        - alert: FhirAggregatorPodDown
+          expr: |
+            kube_deployment_status_replicas_ready{deployment="fhir-aggregator"} < 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No FHIR Aggregator pods are ready"
+            description: >
+              The fhir-aggregator Deployment has no ready pods.
+              All FHIR search and write requests will fail.
+            runbook_url: "https://github.com/mherman22/fhir-aggregator-mediator#kubernetes-deployment"

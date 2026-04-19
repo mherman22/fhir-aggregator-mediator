@@ -14,7 +14,8 @@ class SourceMonitor {
 
   /**
    * Validate all sources on startup by hitting /metadata.
-   * Throws if any source fails authentication — fail fast.
+   * Sources marked optional:true are allowed to fail — they are set to DOWN
+   * but do not block startup. Required sources cause an immediate throw.
    */
   async validateAll(sources, fhirClient) {
     const results = await Promise.allSettled(
@@ -24,6 +25,7 @@ class SourceMonitor {
           this.status[source.id] = {
             status: 'UP',
             name: source.name,
+            optional: !!source.optional,
             lastError: null,
             lastChecked: new Date().toISOString(),
           };
@@ -39,9 +41,20 @@ class SourceMonitor {
           this.status[source.id] = {
             status,
             name: source.name,
+            optional: !!source.optional,
             lastError: message,
             lastChecked: new Date().toISOString(),
           };
+
+          if (source.optional) {
+            logger.warn(
+              { sourceId: source.id, sourceName: source.name, error: message, optional: true },
+              'Optional source validation failed — continuing startup'
+            );
+            // Do not throw for optional sources
+            return;
+          }
+
           logger.error(
             { sourceId: source.id, sourceName: source.name, error: message },
             'Source validation failed'
@@ -91,6 +104,9 @@ class SourceMonitor {
   /**
    * Get health summary for all sources.
    * Optionally includes circuit breaker state.
+   *
+   * Overall status is UP when all required (non-optional) sources are UP.
+   * DEGRADED if any required source is not UP, or if any optional source is not UP.
    */
   getHealth(circuitBreaker) {
     const cbStates = circuitBreaker ? circuitBreaker.getStates() : {};
@@ -99,9 +115,9 @@ class SourceMonitor {
       ...info,
       ...(cbStates[id] ? { circuitBreaker: cbStates[id] } : {}),
     }));
-    const allUp = sources.every((s) => s.status === 'UP');
+    const requiredDown = sources.some((s) => !s.optional && s.status !== 'UP');
     return {
-      status: allUp ? 'UP' : 'DEGRADED',
+      status: requiredDown ? 'DEGRADED' : 'UP',
       sources,
     };
   }

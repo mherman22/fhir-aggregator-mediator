@@ -31,6 +31,13 @@ describe('FhirClient', () => {
     password: '',
   };
 
+  const bearerSource = {
+    id: 'bearer',
+    name: 'Bearer Auth',
+    baseUrl: 'http://test-server:8080/fhir',
+    bearerToken: 'my-jwt-token',
+  };
+
   describe('search', () => {
     it('sends GET with correct URL, auth, and params', async () => {
       const scope = nock('http://test-server:8080')
@@ -234,6 +241,113 @@ describe('FhirClient', () => {
 
       await expect(retryClient.search(source, '/Patient', {})).rejects.toThrow();
       retryClient.destroy();
+    });
+  });
+
+  describe('bearer token auth', () => {
+    it('sends Authorization: Bearer header for sources with bearerToken', async () => {
+      const scope = nock('http://test-server:8080', {
+        reqheaders: { Authorization: 'Bearer my-jwt-token' },
+      })
+        .get('/fhir/Patient')
+        .reply(200, { resourceType: 'Bundle', entry: [] });
+
+      await client.search(bearerSource, '/Patient', {});
+      scope.done();
+    });
+
+    it('does NOT send Basic Auth when bearerToken is present', async () => {
+      const scope = nock('http://test-server:8080')
+        .get('/fhir/Patient')
+        .reply(200, function () {
+          // Basic Auth header should not be present
+          expect(this.req.headers.authorization).toMatch(/^Bearer /);
+          return { resourceType: 'Bundle', entry: [] };
+        });
+
+      const sourceWithBothCreds = {
+        id: 'both',
+        baseUrl: 'http://test-server:8080/fhir',
+        username: 'admin',
+        password: 'pass',
+        bearerToken: 'my-jwt-token',
+      };
+      await client.search(sourceWithBothCreds, '/Patient', {});
+      scope.done();
+    });
+
+    it('fetchUrl sends Bearer token for sources with bearerToken', async () => {
+      const scope = nock('http://test-server:8080', {
+        reqheaders: { Authorization: 'Bearer my-jwt-token' },
+      })
+        .get('/fhir')
+        .reply(200, { resourceType: 'Bundle', entry: [] });
+
+      await client.fetchUrl(bearerSource, 'http://test-server:8080/fhir');
+      scope.done();
+    });
+  });
+
+  describe('write (POST/PUT/PATCH/DELETE)', () => {
+    it('sends POST request with body and basic auth', async () => {
+      const body = { resourceType: 'Patient', id: 'p1' };
+      const scope = nock('http://test-server:8080')
+        .post('/fhir/Patient', body)
+        .basicAuth({ user: 'admin', pass: 'secret' })
+        .reply(201, { resourceType: 'Patient', id: 'p1' });
+
+      const result = await client.write(source, 'POST', '/Patient', body);
+      expect(result.status).toBe(201);
+      expect(result.data.resourceType).toBe('Patient');
+      scope.done();
+    });
+
+    it('sends PUT request with body', async () => {
+      const body = { resourceType: 'Patient', id: 'p1' };
+      const scope = nock('http://test-server:8080').put('/fhir/Patient/p1', body).reply(200, body);
+
+      const result = await client.write(source, 'PUT', '/Patient/p1', body);
+      expect(result.status).toBe(200);
+      scope.done();
+    });
+
+    it('sends DELETE request without body', async () => {
+      const scope = nock('http://test-server:8080').delete('/fhir/Patient/p1').reply(204);
+
+      const result = await client.write(source, 'DELETE', '/Patient/p1', undefined);
+      expect(result.status).toBe(204);
+      scope.done();
+    });
+
+    it('sends Bearer token on write when bearerToken is present', async () => {
+      const scope = nock('http://test-server:8080', {
+        reqheaders: { Authorization: 'Bearer my-jwt-token' },
+      })
+        .post('/fhir/Patient')
+        .reply(201, { resourceType: 'Patient', id: 'p2' });
+
+      const result = await client.write(bearerSource, 'POST', '/Patient', {});
+      expect(result.status).toBe(201);
+      scope.done();
+    });
+
+    it('propagates extra headers on write', async () => {
+      const scope = nock('http://test-server:8080', {
+        reqheaders: { 'X-Correlation-ID': 'test-id' },
+      })
+        .post('/fhir/Patient')
+        .reply(201, {});
+
+      await client.write(source, 'POST', '/Patient', {}, { 'X-Correlation-ID': 'test-id' });
+      scope.done();
+    });
+
+    it('throws on upstream 4xx error', async () => {
+      nock('http://test-server:8080')
+        .put('/fhir/Patient/x')
+        .reply(422, { resourceType: 'OperationOutcome', issue: [] });
+
+      await expect(client.write(source, 'PUT', '/Patient/x', {})).rejects.toThrow();
     });
   });
 });

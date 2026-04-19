@@ -112,6 +112,124 @@ describe('config-validator', () => {
       };
       expect(() => validateConfig(cfg)).not.toThrow();
     });
+
+    describe('source optional and bearerToken fields', () => {
+      it('accepts source with optional: true', () => {
+        const cfg = {
+          ...validConfig,
+          sources: [{ ...validConfig.sources[0], optional: true }],
+        };
+        expect(() => validateConfig(cfg)).not.toThrow();
+      });
+
+      it('rejects source with optional: "yes" (non-boolean)', () => {
+        const cfg = {
+          ...validConfig,
+          sources: [{ ...validConfig.sources[0], optional: 'yes' }],
+        };
+        expect(() => validateConfig(cfg)).toThrow('optional must be a boolean');
+      });
+
+      it('accepts source with bearerToken', () => {
+        const cfg = {
+          ...validConfig,
+          sources: [{ ...validConfig.sources[0], bearerToken: 'my-token' }],
+        };
+        expect(() => validateConfig(cfg)).not.toThrow();
+      });
+
+      it('rejects source with non-string bearerToken', () => {
+        const cfg = {
+          ...validConfig,
+          sources: [{ ...validConfig.sources[0], bearerToken: 12345 }],
+        };
+        expect(() => validateConfig(cfg)).toThrow('bearerToken must be a string');
+      });
+    });
+
+    describe('writeTarget', () => {
+      it('accepts a valid writeTarget that references an existing source', () => {
+        const cfg = { ...validConfig, writeTarget: 'src1' };
+        expect(() => validateConfig(cfg)).not.toThrow();
+      });
+
+      it('rejects a writeTarget that does not reference an existing source', () => {
+        const cfg = { ...validConfig, writeTarget: 'nonexistent' };
+        expect(() => validateConfig(cfg)).toThrow('does not match any source id');
+      });
+
+      it('rejects a non-string writeTarget', () => {
+        const cfg = { ...validConfig, writeTarget: 42 };
+        expect(() => validateConfig(cfg)).toThrow('writeTarget must be a string');
+      });
+    });
+
+    describe('inboundAuth', () => {
+      it('accepts valid basic auth config', () => {
+        const cfg = {
+          ...validConfig,
+          inboundAuth: { enabled: true, type: 'basic', username: 'u', password: 'p' },
+        };
+        expect(() => validateConfig(cfg)).not.toThrow();
+      });
+
+      it('accepts valid apikey auth config', () => {
+        const cfg = {
+          ...validConfig,
+          inboundAuth: { enabled: true, type: 'apikey', apiKey: 'my-key' },
+        };
+        expect(() => validateConfig(cfg)).not.toThrow();
+      });
+
+      it('rejects invalid inboundAuth.type', () => {
+        const cfg = {
+          ...validConfig,
+          inboundAuth: { enabled: true, type: 'oauth2' },
+        };
+        expect(() => validateConfig(cfg)).toThrow('inboundAuth.type must be');
+      });
+
+      it('rejects basic auth without username', () => {
+        const cfg = {
+          ...validConfig,
+          inboundAuth: { enabled: true, type: 'basic', password: 'p' },
+        };
+        expect(() => validateConfig(cfg)).toThrow('inboundAuth.username is required');
+      });
+
+      it('rejects apikey auth without apiKey', () => {
+        const cfg = {
+          ...validConfig,
+          inboundAuth: { enabled: true, type: 'apikey' },
+        };
+        expect(() => validateConfig(cfg)).toThrow('inboundAuth.apiKey is required');
+      });
+    });
+
+    describe('tls', () => {
+      it('accepts valid TLS config', () => {
+        const cfg = {
+          ...validConfig,
+          tls: { enabled: true, certFile: '/path/cert.pem', keyFile: '/path/key.pem' },
+        };
+        expect(() => validateConfig(cfg)).not.toThrow();
+      });
+
+      it('rejects TLS enabled without certFile', () => {
+        const cfg = { ...validConfig, tls: { enabled: true, keyFile: '/path/key.pem' } };
+        expect(() => validateConfig(cfg)).toThrow('tls.certFile is required');
+      });
+
+      it('rejects TLS enabled without keyFile', () => {
+        const cfg = { ...validConfig, tls: { enabled: true, certFile: '/path/cert.pem' } };
+        expect(() => validateConfig(cfg)).toThrow('tls.keyFile is required');
+      });
+
+      it('accepts TLS config with enabled: false (no cert/key required)', () => {
+        const cfg = { ...validConfig, tls: { enabled: false } };
+        expect(() => validateConfig(cfg)).not.toThrow();
+      });
+    });
   });
 
   describe('applyEnvOverrides', () => {
@@ -217,6 +335,55 @@ describe('config-validator', () => {
       expect(cfg.mediator.api.username).toBe('admin@openhim.org');
       expect(cfg.mediator.api.password).toBe('secret');
       expect(cfg.mediator.api.apiURL).toBe('https://new-openhim:8080');
+    });
+
+    it('overrides source bearer token from env var', () => {
+      process.env.SOURCE_src1_BEARER_TOKEN = 'my-jwt-token';
+      const cfg = { app: { port: 3000 }, sources: [{ id: 'src1' }] };
+      applyEnvOverrides(cfg);
+      expect(cfg.sources[0].bearerToken).toBe('my-jwt-token');
+    });
+
+    it('sets inboundAuth from env vars', () => {
+      process.env.INBOUND_AUTH_TYPE = 'basic';
+      process.env.INBOUND_AUTH_USERNAME = 'u';
+      process.env.INBOUND_AUTH_PASSWORD = 'p';
+      const cfg = { app: { port: 3000 }, sources: [] };
+      applyEnvOverrides(cfg);
+      expect(cfg.inboundAuth.enabled).toBe(true);
+      expect(cfg.inboundAuth.type).toBe('basic');
+      expect(cfg.inboundAuth.username).toBe('u');
+      expect(cfg.inboundAuth.password).toBe('p');
+    });
+
+    it('sets apikey inboundAuth from env vars', () => {
+      process.env.INBOUND_AUTH_TYPE = 'apikey';
+      process.env.INBOUND_AUTH_API_KEY = 'secret-key';
+      process.env.INBOUND_AUTH_HEADER = 'X-My-Token';
+      const cfg = { app: { port: 3000 }, sources: [] };
+      applyEnvOverrides(cfg);
+      expect(cfg.inboundAuth.type).toBe('apikey');
+      expect(cfg.inboundAuth.apiKey).toBe('secret-key');
+      expect(cfg.inboundAuth.header).toBe('X-My-Token');
+    });
+
+    it('sets TLS settings from env vars', () => {
+      process.env.TLS_CERT_FILE = '/path/to/cert.pem';
+      process.env.TLS_KEY_FILE = '/path/to/key.pem';
+      process.env.TLS_PASSPHRASE = 'mypass';
+      const cfg = { app: { port: 3000 }, sources: [] };
+      applyEnvOverrides(cfg);
+      expect(cfg.tls.enabled).toBe(true);
+      expect(cfg.tls.certFile).toBe('/path/to/cert.pem');
+      expect(cfg.tls.keyFile).toBe('/path/to/key.pem');
+      expect(cfg.tls.passphrase).toBe('mypass');
+    });
+
+    it('sets writeTarget from env var', () => {
+      process.env.WRITE_TARGET = 'src1';
+      const cfg = { app: { port: 3000 }, sources: [{ id: 'src1' }] };
+      applyEnvOverrides(cfg);
+      expect(cfg.writeTarget).toBe('src1');
     });
   });
 });
