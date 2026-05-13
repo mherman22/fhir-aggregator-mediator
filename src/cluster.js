@@ -14,10 +14,8 @@ const logger = require('./logger');
  * Each worker runs its own Express server sharing the same port
  * (Node.js round-robin distribution on Linux, OS-level on others).
  *
- * The in-process LRU pagination cache is per-worker by design.
- * Each worker can independently re-fetch pages from upstream, so
- * stateless pagination remains correct even when a subsequent
- * _getpages request lands on a different worker.
+ * Pagination is stateless, so _getpages requests remain correct even
+ * when a subsequent request lands on a different worker.
  *
  * Enable via:
  *   - Environment variable:  CLUSTER_ENABLED=true
