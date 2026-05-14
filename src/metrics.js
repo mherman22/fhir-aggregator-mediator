@@ -6,7 +6,7 @@ const client = require('prom-client');
  * Prometheus metrics for the FHIR Aggregator Mediator (Issue 3).
  *
  * Exposes request duration, error counts, upstream latency, and
- * pagination cache statistics.
+ * pagination token decode statistics.
  */
 function createMetrics() {
   // Create a new registry (isolates from default registry for testability)
