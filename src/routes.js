@@ -296,6 +296,27 @@ function validateQueryParams(query) {
   return { valid: true };
 }
 
+function validateQueryParamOccurrences(originalUrl) {
+  const queryString = (originalUrl && originalUrl.split('?')[1]) || '';
+  if (!queryString) return { valid: true };
+
+  const params = new URLSearchParams(queryString);
+  const counts = new Map();
+
+  for (const [key] of params) {
+    const nextCount = (counts.get(key) || 0) + 1;
+    if (nextCount > MAX_PARAM_VALUES_PER_KEY) {
+      return {
+        valid: false,
+        error: `Too many values for parameter: ${sanitizeForLog(key)} (max ${MAX_PARAM_VALUES_PER_KEY})`,
+      };
+    }
+    counts.set(key, nextCount);
+  }
+
+  return { valid: true };
+}
+
 function createRouter(
   config,
   paginationManager,
@@ -450,6 +471,20 @@ function createRouter(
     }
 
     // Validate query parameters (Issue 12)
+    const occurrencesValidation = validateQueryParamOccurrences(req.originalUrl);
+    if (!occurrencesValidation.valid) {
+      return fhirJson(res, 400, {
+        resourceType: 'OperationOutcome',
+        issue: [
+          {
+            severity: 'error',
+            code: 'invalid',
+            diagnostics: occurrencesValidation.error,
+          },
+        ],
+      });
+    }
+
     const validation = validateQueryParams(req.query);
     if (!validation.valid) {
       return fhirJson(res, 400, {

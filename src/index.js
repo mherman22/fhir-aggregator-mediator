@@ -40,7 +40,8 @@ async function startWorker() {
   const sourceMonitor = new SourceMonitor();
   const circuitBreaker = new CircuitBreaker(config.circuitBreaker || {});
   const metrics = createMetrics();
-  const sourceCount = Array.isArray(config.sources) && config.sources.length > 0 ? config.sources.length : 1;
+  const sourceCount =
+    Array.isArray(config.sources) && config.sources.length > 0 ? config.sources.length : 1;
 
   // Upstream concurrency limiter — prevents fan-out storms during large batch runs
   const defaultMaxConcurrentUpstream = Math.max(20, sourceCount * 3);
