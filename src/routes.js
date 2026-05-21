@@ -265,8 +265,7 @@ function validateQueryParams(query) {
   // Resource-specific params don't start with _ so we only block unknown _ params
   for (const key of keys) {
     if (key.startsWith('_')) {
-      // Allow standard modifiers like `_include:iterate` and `_include:Patient:iterate`
-      // while still validating only the base key.
+      // Allow standard modifiers like `_include:iterate` while validating only the base key.
       const baseKey = key.split(':')[0];
       if (!KNOWN_FHIR_PARAMS.has(baseKey)) {
         return { valid: false, error: `Unknown FHIR search parameter: ${sanitizeForLog(key)}` };
@@ -297,14 +296,16 @@ function validateQueryParams(query) {
   return { valid: true };
 }
 
+function extractQueryString(originalUrl) {
+  if (!originalUrl) return '';
+  const queryStart = originalUrl.indexOf('?');
+  if (queryStart < 0) return '';
+  const fragmentStart = originalUrl.indexOf('#', queryStart);
+  return originalUrl.slice(queryStart + 1, fragmentStart < 0 ? undefined : fragmentStart);
+}
+
 function validateQueryParamOccurrences(originalUrl) {
-  const queryString = (() => {
-    if (!originalUrl) return '';
-    const queryStart = originalUrl.indexOf('?');
-    if (queryStart < 0) return '';
-    const fragmentStart = originalUrl.indexOf('#', queryStart);
-    return originalUrl.slice(queryStart + 1, fragmentStart < 0 ? undefined : fragmentStart);
-  })();
+  const queryString = extractQueryString(originalUrl);
   if (!queryString) return { valid: true };
 
   const params = new URLSearchParams(queryString);
