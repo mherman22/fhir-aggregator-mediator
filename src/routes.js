@@ -265,7 +265,8 @@ function validateQueryParams(query) {
   // Resource-specific params don't start with _ so we only block unknown _ params
   for (const key of keys) {
     if (key.startsWith('_')) {
-      // Allow standard modifiers like `_include:iterate` while still validating the base key.
+      // Allow standard modifiers like `_include:iterate` and `_include:Patient:iterate`
+      // while still validating only the base key.
       const baseKey = key.split(':')[0];
       if (!KNOWN_FHIR_PARAMS.has(baseKey)) {
         return { valid: false, error: `Unknown FHIR search parameter: ${sanitizeForLog(key)}` };

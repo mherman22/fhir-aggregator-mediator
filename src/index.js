@@ -44,8 +44,13 @@ async function startWorker() {
   const sourceMonitor = new SourceMonitor();
   const circuitBreaker = new CircuitBreaker(config.circuitBreaker || {});
   const metrics = createMetrics();
-  const sourceCount =
-    Array.isArray(config.sources) && config.sources.length > 0 ? config.sources.length : 1;
+  const hasValidSourceArray = Array.isArray(config.sources) && config.sources.length > 0;
+  const sourceCount = hasValidSourceArray ? config.sources.length : 1;
+  if (!hasValidSourceArray) {
+    logger.warn(
+      'No valid sources array found while computing defaults; falling back to sourceCount=1'
+    );
+  }
 
   // Upstream concurrency limiter — prevents fan-out storms during large batch runs
   // Keep enough fan-out capacity for normal throughput while preventing request storms.
