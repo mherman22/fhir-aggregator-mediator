@@ -182,6 +182,14 @@ describe('routes', () => {
       expect(res.body.resourceType).toBe('Bundle');
     });
 
+    it('allows known FHIR search parameters with modifiers', async () => {
+      mockFhirClient.search.mockResolvedValue(emptyBundle);
+      const res = await supertest(app)
+        .get('/fhir/Patient?_include:iterate=Observation:subject')
+        .expect(200);
+      expect(res.body.resourceType).toBe('Bundle');
+    });
+
     it('allows resource-specific search parameters (no underscore)', async () => {
       mockFhirClient.search.mockResolvedValue(emptyBundle);
       const res = await supertest(app)
@@ -195,6 +203,24 @@ describe('routes', () => {
       const res = await supertest(app).get(`/fhir/Patient?name=${longValue}`).expect(400);
       expect(res.body.resourceType).toBe('OperationOutcome');
       expect(res.body.issue[0].diagnostics).toContain('too long');
+    });
+
+    it('allows repeated parameters used by FHIR search', async () => {
+      mockFhirClient.search.mockResolvedValue(emptyBundle);
+      const res = await supertest(app)
+        .get('/fhir/Patient?_include=Patient:general-practitioner&_include=Patient:organization')
+        .expect(200);
+      expect(res.body.resourceType).toBe('Bundle');
+    });
+
+    it('rejects parameter pollution with too many repeated values', async () => {
+      const values = new URLSearchParams();
+      for (let i = 0; i < 21; i++) {
+        values.append('_include', `Patient:organization${i}`);
+      }
+      const res = await supertest(app).get(`/fhir/Patient?${values.toString()}`).expect(400);
+      expect(res.body.resourceType).toBe('OperationOutcome');
+      expect(res.body.issue[0].diagnostics).toContain('Too many values');
     });
   });
 

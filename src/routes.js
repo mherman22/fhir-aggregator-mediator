@@ -159,6 +159,8 @@ const VALID_RESOURCE_TYPE_SET = new Set(SUPPORTED_RESOURCE_TYPES);
 const MAX_COUNT = 500;
 const DEFAULT_COUNT = 20;
 const MAX_QUERY_PARAMS = 50;
+const MAX_PARAM_VALUES_PER_KEY = 20;
+const MAX_QUERY_VALUE_LENGTH = 2000;
 
 // Known FHIR search parameters that are safe to forward (Issue 12)
 const KNOWN_FHIR_PARAMS = new Set([
@@ -262,12 +264,31 @@ function validateQueryParams(query) {
   // Validate parameter names — allow known FHIR params and resource-specific search params
   // Resource-specific params don't start with _ so we only block unknown _ params
   for (const key of keys) {
-    if (key.startsWith('_') && !KNOWN_FHIR_PARAMS.has(key)) {
-      return { valid: false, error: `Unknown FHIR search parameter: ${sanitizeForLog(key)}` };
+    if (key.startsWith('_')) {
+      // Allow standard modifiers like `_include:iterate` while still validating the base key.
+      const baseKey = key.split(':', 1)[0];
+      if (!KNOWN_FHIR_PARAMS.has(baseKey)) {
+        return { valid: false, error: `Unknown FHIR search parameter: ${sanitizeForLog(key)}` };
+      }
     }
-    // Limit individual parameter value length to prevent abuse
+
+    // Limit individual parameter value length to prevent abuse.
+    // Express may parse repeated params into an array (e.g. _include=A&_include=B).
     const value = query[key];
-    if (typeof value === 'string' && value.length > 2000) {
+    if (Array.isArray(value)) {
+      if (value.length > MAX_PARAM_VALUES_PER_KEY) {
+        return {
+          valid: false,
+          error: `Too many values for parameter: ${sanitizeForLog(key)} (max ${MAX_PARAM_VALUES_PER_KEY})`,
+        };
+      }
+
+      for (const item of value) {
+        if (typeof item === 'string' && item.length > MAX_QUERY_VALUE_LENGTH) {
+          return { valid: false, error: `Parameter value too long for: ${sanitizeForLog(key)}` };
+        }
+      }
+    } else if (typeof value === 'string' && value.length > MAX_QUERY_VALUE_LENGTH) {
       return { valid: false, error: `Parameter value too long for: ${sanitizeForLog(key)}` };
     }
   }

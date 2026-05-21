@@ -40,10 +40,13 @@ async function startWorker() {
   const sourceMonitor = new SourceMonitor();
   const circuitBreaker = new CircuitBreaker(config.circuitBreaker || {});
   const metrics = createMetrics();
+  const sourceCount = Array.isArray(config.sources) && config.sources.length > 0 ? config.sources.length : 1;
 
   // Upstream concurrency limiter — prevents fan-out storms during large batch runs
+  const defaultMaxConcurrentUpstream = Math.max(20, sourceCount * 3);
   const maxConcurrentUpstream =
-    (config.performance && config.performance.maxConcurrentUpstreamRequests) || 50;
+    (config.performance && config.performance.maxConcurrentUpstreamRequests) ||
+    defaultMaxConcurrentUpstream;
   const semaphore = new Semaphore(maxConcurrentUpstream);
 
   // Issue 7: Security headers via helmet
@@ -59,16 +62,21 @@ async function startWorker() {
   const authEnabled = !!(config.inboundAuth && config.inboundAuth.enabled);
   const shouldRateLimit = authEnabled || rateLimitingConfig.enabled !== false;
   if (shouldRateLimit) {
+    const defaultRateLimitWindowMs = 60000;
+    const defaultRateLimitMaxRequests = Math.max(300, sourceCount * 50);
+    const windowMs = rateLimitingConfig.windowMs || defaultRateLimitWindowMs;
+    const maxRequests = rateLimitingConfig.maxRequests || defaultRateLimitMaxRequests;
     const fhirLimiter = rateLimit({
-      windowMs: rateLimitingConfig.windowMs || 60000,
-      max: rateLimitingConfig.maxRequests || 100,
+      windowMs,
+      max: maxRequests,
       standardHeaders: true,
       legacyHeaders: false,
       handler: (req, res) => {
+        const retryAfterSeconds = Math.ceil(windowMs / 1000);
         res
           .status(429)
           .set('Content-Type', 'application/fhir+json; charset=utf-8')
-          .set('Retry-After', '60')
+          .set('Retry-After', String(retryAfterSeconds))
           .json({
             resourceType: 'OperationOutcome',
             issue: [
