@@ -67,13 +67,13 @@ async function startWorker() {
     const defaultRateLimitMaxRequests = Math.max(300, sourceCount * 50);
     const windowMs = rateLimitingConfig.windowMs || defaultRateLimitWindowMs;
     const maxRequests = rateLimitingConfig.maxRequests || defaultRateLimitMaxRequests;
+    const retryAfterSeconds = Math.ceil(windowMs / 1000);
     const fhirLimiter = rateLimit({
       windowMs,
       max: maxRequests,
       standardHeaders: true,
       legacyHeaders: false,
       handler: (req, res) => {
-        const retryAfterSeconds = Math.ceil(windowMs / 1000);
         res
           .status(429)
           .set('Content-Type', 'application/fhir+json; charset=utf-8')

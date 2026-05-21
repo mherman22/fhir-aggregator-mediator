@@ -266,7 +266,7 @@ function validateQueryParams(query) {
   for (const key of keys) {
     if (key.startsWith('_')) {
       // Allow standard modifiers like `_include:iterate` while still validating the base key.
-      const baseKey = key.split(':', 1)[0];
+      const baseKey = key.split(':')[0];
       if (!KNOWN_FHIR_PARAMS.has(baseKey)) {
         return { valid: false, error: `Unknown FHIR search parameter: ${sanitizeForLog(key)}` };
       }
@@ -297,7 +297,14 @@ function validateQueryParams(query) {
 }
 
 function validateQueryParamOccurrences(originalUrl) {
-  const queryString = (originalUrl && originalUrl.split('?')[1]) || '';
+  const queryString = (() => {
+    if (!originalUrl) return '';
+    try {
+      return new URL(originalUrl, 'http://localhost').search.substring(1);
+    } catch {
+      return '';
+    }
+  })();
   if (!queryString) return { valid: true };
 
   const params = new URLSearchParams(queryString);
