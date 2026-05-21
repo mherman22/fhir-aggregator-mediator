@@ -21,6 +21,10 @@ const logger = require('./logger');
 
 const config = require('../config/config.json');
 const mediatorConfig = require('../config/mediator.json');
+const MIN_CONCURRENT_UPSTREAM = 20;
+const CONCURRENT_PER_SOURCE_MULTIPLIER = 3;
+const MIN_RATE_LIMIT_REQUESTS_PER_WINDOW = 300;
+const RATE_LIMIT_PER_SOURCE_MULTIPLIER = 50;
 
 // Apply environment variable overrides (Issue 9)
 applyEnvOverrides(config);
@@ -44,7 +48,11 @@ async function startWorker() {
     Array.isArray(config.sources) && config.sources.length > 0 ? config.sources.length : 1;
 
   // Upstream concurrency limiter — prevents fan-out storms during large batch runs
-  const defaultMaxConcurrentUpstream = Math.max(20, sourceCount * 3);
+  // Keep enough fan-out capacity for normal throughput while preventing request storms.
+  const defaultMaxConcurrentUpstream = Math.max(
+    MIN_CONCURRENT_UPSTREAM,
+    sourceCount * CONCURRENT_PER_SOURCE_MULTIPLIER
+  );
   const maxConcurrentUpstream =
     (config.performance && config.performance.maxConcurrentUpstreamRequests) ||
     defaultMaxConcurrentUpstream;
@@ -64,7 +72,12 @@ async function startWorker() {
   const shouldRateLimit = authEnabled || rateLimitingConfig.enabled !== false;
   if (shouldRateLimit) {
     const defaultRateLimitWindowMs = 60000;
-    const defaultRateLimitMaxRequests = Math.max(300, sourceCount * 50);
+    // Scale default inbound rate limit with source count so pipelines can page through results
+    // without tripping rate limits in multi-source deployments.
+    const defaultRateLimitMaxRequests = Math.max(
+      MIN_RATE_LIMIT_REQUESTS_PER_WINDOW,
+      sourceCount * RATE_LIMIT_PER_SOURCE_MULTIPLIER
+    );
     const windowMs = rateLimitingConfig.windowMs || defaultRateLimitWindowMs;
     const maxRequests = rateLimitingConfig.maxRequests || defaultRateLimitMaxRequests;
     const retryAfterSeconds = Math.ceil(windowMs / 1000);

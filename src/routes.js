@@ -299,12 +299,10 @@ function validateQueryParams(query) {
 function validateQueryParamOccurrences(originalUrl) {
   const queryString = (() => {
     if (!originalUrl) return '';
-    try {
-      return new URL(originalUrl, 'http://localhost').search.substring(1);
-    } catch {
-      // If parsing fails, treat as empty and let downstream validation handle request safety.
-      return '';
-    }
+    const queryStart = originalUrl.indexOf('?');
+    if (queryStart < 0) return '';
+    const fragmentStart = originalUrl.indexOf('#', queryStart);
+    return originalUrl.slice(queryStart + 1, fragmentStart < 0 ? undefined : fragmentStart);
   })();
   if (!queryString) return { valid: true };
 
