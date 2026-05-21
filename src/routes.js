@@ -302,6 +302,7 @@ function validateQueryParamOccurrences(originalUrl) {
     try {
       return new URL(originalUrl, 'http://localhost').search.substring(1);
     } catch {
+      // If parsing fails, treat as empty and let downstream validation handle request safety.
       return '';
     }
   })();
@@ -311,14 +312,14 @@ function validateQueryParamOccurrences(originalUrl) {
   const counts = new Map();
 
   for (const [key] of params) {
-    const nextCount = (counts.get(key) || 0) + 1;
-    if (nextCount > MAX_PARAM_VALUES_PER_KEY) {
+    const currentCount = (counts.get(key) || 0) + 1;
+    if (currentCount > MAX_PARAM_VALUES_PER_KEY) {
       return {
         valid: false,
         error: `Too many values for parameter: ${sanitizeForLog(key)} (max ${MAX_PARAM_VALUES_PER_KEY})`,
       };
     }
-    counts.set(key, nextCount);
+    counts.set(key, currentCount);
   }
 
   return { valid: true };
