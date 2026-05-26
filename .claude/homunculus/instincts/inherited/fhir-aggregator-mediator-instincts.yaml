@@ -1,0 +1,393 @@
+# Instincts generated from https://github.com/mherman22/fhir-aggregator-mediator
+# Generated: 2026-05-21T18:16:44.380Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: fhir-aggregator-mediator-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: chore, refactor, feat, fix
+
+## Evidence
+
+- 7 commits analyzed
+- Detected conventional commit pattern
+- Examples: feat: harden fhir query compatibility and tune runtime defaults, fix: enforce duplicate query key limits and format updates
+
+---
+id: fhir-aggregator-mediator-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Commit Length
+
+## Action
+
+Write moderate-length commit messages (~61 characters)
+
+## Evidence
+
+- Average commit message length: 61 chars
+- Based on 7 commits
+
+---
+id: fhir-aggregator-mediator-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: fhir-aggregator-mediator-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: fhir-aggregator-mediator-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: fhir-aggregator-mediator-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: fhir-aggregator-mediator-workflow-query-parsing-update-workflow
+trigger: "when doing query parsing update workflow"
+confidence: 0.7
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Workflow Query Parsing Update Workflow
+
+## Action
+
+Follow the query-parsing-update-workflow workflow:
+1. Edit src/routes.js to update or clarify query parsing logic.
+2. Edit src/index.js to adjust runtime defaults or integrate parsing changes.
+3. Optionally update tests/integration/routes.test.js if behavior changes.
+4. Optionally update README.md or documentation to reflect new parsing behaviors.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~4x per month
+- Files: src/routes.js, src/index.js, tests/integration/routes.test.js
+
+---
+id: fhir-aggregator-mediator-workflow-code-review-feedback-iteration-workflow
+trigger: "when doing code review feedback iteration workflow"
+confidence: 0.65
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Workflow Code Review Feedback Iteration Workflow
+
+## Action
+
+Follow the code-review-feedback-iteration-workflow workflow:
+1. Edit src/routes.js and/or src/index.js to address feedback or polish code/comments.
+2. Commit with a 'chore:' or 'refactor:' message indicating review feedback or code polish.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~3x per month
+- Files: src/routes.js, src/index.js
+
+---
+id: fhir-aggregator-mediator-instinct-file-naming
+trigger: "When creating or renaming a file in the codebase"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Instinct File Naming
+
+## Action
+
+Use camelCase for file names
+
+## Evidence
+
+- Pattern in namingConventions.files
+- Observed in src/routes.js, src/index.js
+
+---
+id: fhir-aggregator-mediator-instinct-function-naming
+trigger: "When defining a function"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Instinct Function Naming
+
+## Action
+
+Use camelCase for function names
+
+## Evidence
+
+- Pattern in namingConventions.functions
+
+---
+id: fhir-aggregator-mediator-instinct-class-naming
+trigger: "When defining a class"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Instinct Class Naming
+
+## Action
+
+Use PascalCase for class names
+
+## Evidence
+
+- Pattern in namingConventions.classes
+
+---
+id: fhir-aggregator-mediator-instinct-constant-naming
+trigger: "When defining a constant"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Instinct Constant Naming
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for constant names
+
+## Evidence
+
+- Pattern in namingConventions.constants
+
+---
+id: fhir-aggregator-mediator-instinct-import-style
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Instinct Import Style
+
+## Action
+
+Use relative import paths
+
+## Evidence
+
+- Pattern in importStyle: relative
+- Seen in src/index.js
+
+---
+id: fhir-aggregator-mediator-instinct-export-style
+trigger: "When exporting functions or objects"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Instinct Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle: named
+
+---
+id: fhir-aggregator-mediator-instinct-testing-location
+trigger: "When adding or updating tests"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Instinct Testing Location
+
+## Action
+
+Place tests in the tests/ directory, separate from src/
+
+## Evidence
+
+- tests/integration/routes.test.js
+- architecture.folderStructure.testLocation: separate
+
+---
+id: fhir-aggregator-mediator-instinct-testing-integration
+trigger: "When testing route or query parsing logic"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Instinct Testing Integration
+
+## Action
+
+Write or update integration tests in tests/integration/routes.test.js
+
+## Evidence
+
+- tests/integration/routes.test.js updated in query-parsing-update-workflow
+
+---
+id: fhir-aggregator-mediator-instinct-git-commit-format
+trigger: "When making a commit"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Instinct Git Commit Format
+
+## Action
+
+Use Conventional Commits format with prefixes: chore, refactor, feat, or fix, and keep commit messages concise (around 60 characters on average)
+
+## Evidence
+
+- feat: harden fhir query compatibility and tune runtime defaults
+- fix: enforce duplicate query key limits and format updates
+- chore: address review feedback on query parsing and rate-limit handler
+- refactor: clarify query parsing and default tuning constants
+
+---
+id: fhir-aggregator-mediator-instinct-workflow-query-parsing-update
+trigger: "When someone wants to add, fix, or refactor query parsing or compatibility logic"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Instinct Workflow Query Parsing Update
+
+## Action
+
+Edit src/routes.js for parsing logic, src/index.js for runtime defaults, and optionally update tests/integration/routes.test.js and README.md
+
+## Evidence
+
+- query-parsing-update-workflow steps and commit sequences
+- Commits: feat: harden fhir query compatibility and tune runtime defaults
+- fix: enforce duplicate query key limits and format updates
+
+---
+id: fhir-aggregator-mediator-instinct-workflow-code-review-feedback
+trigger: "When someone receives code review feedback or wants to improve code clarity and documentation"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: mherman22/fhir-aggregator-mediator
+---
+
+# Fhir Aggregator Mediator Instinct Workflow Code Review Feedback
+
+## Action
+
+Edit src/routes.js and/or src/index.js to address feedback or polish code/comments, and commit with a 'chore:' or 'refactor:' message
+
+## Evidence
+
+- code-review-feedback-iteration-workflow steps and commit sequences
+- Commits: chore: address review feedback on query parsing and rate-limit handler
+- refactor: clarify query parsing and default tuning constants
