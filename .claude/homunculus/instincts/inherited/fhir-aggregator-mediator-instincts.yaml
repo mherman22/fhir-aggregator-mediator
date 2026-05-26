@@ -341,7 +341,7 @@ source_repo: mherman22/fhir-aggregator-mediator
 
 ## Action
 
-Use Conventional Commits format with prefixes: chore, refactor, feat, or fix
+Use Conventional Commits format with prefixes: chore, refactor, feat, or fix, and keep commit messages concise (around 60 characters on average)
 
 ## Evidence
 
@@ -349,26 +349,6 @@ Use Conventional Commits format with prefixes: chore, refactor, feat, or fix
 - fix: enforce duplicate query key limits and format updates
 - chore: address review feedback on query parsing and rate-limit handler
 - refactor: clarify query parsing and default tuning constants
-
----
-id: fhir-aggregator-mediator-instinct-git-commit-length
-trigger: "When writing a commit message"
-confidence: 0.7
-domain: git
-source: repo-analysis
-source_repo: mherman22/fhir-aggregator-mediator
----
-
-# Fhir Aggregator Mediator Instinct Git Commit Length
-
-## Action
-
-Keep commit messages concise, around 60 characters on average
-
-## Evidence
-
-- commits.averageLength: 61
-- Examples of short commit messages
 
 ---
 id: fhir-aggregator-mediator-instinct-workflow-query-parsing-update
@@ -411,4 +391,3 @@ Edit src/routes.js and/or src/index.js to address feedback or polish code/commen
 - code-review-feedback-iteration-workflow steps and commit sequences
 - Commits: chore: address review feedback on query parsing and rate-limit handler
 - refactor: clarify query parsing and default tuning constants
-

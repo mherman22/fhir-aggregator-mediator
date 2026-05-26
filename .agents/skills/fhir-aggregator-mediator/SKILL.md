@@ -1,4 +1,3 @@
-```markdown
 # fhir-aggregator-mediator Development Patterns
 
 > Auto-generated skill from repository analysis
@@ -44,7 +43,7 @@ This skill provides guidance for contributing to the `fhir-aggregator-mediator` 
 
 ### Query Parsing Update Workflow
 **Trigger:** When adding, fixing, or refactoring query parsing or compatibility logic  
-**Command:** `/update-query-parsing`
+**Command:** `/query-parsing-update-workflow`
 
 1. Edit `src/routes.js` to update or clarify query parsing logic.
 2. Edit `src/index.js` to adjust runtime defaults or integrate parsing changes.
@@ -59,7 +58,7 @@ feat: improve query parsing for nested parameters
 
 ### Code Review Feedback Iteration Workflow
 **Trigger:** When addressing code review feedback or improving code clarity and documentation  
-**Command:** `/address-review-feedback`
+**Command:** `/code-review-feedback-iteration-workflow`
 
 1. Edit `src/routes.js` and/or `src/index.js` to address feedback or polish code/comments.
 2. Commit with a `chore:` or `refactor:` message indicating review feedback or code polish.
@@ -99,6 +98,5 @@ describe('parseQuery', () => {
 
 | Command                  | Purpose                                                        |
 |--------------------------|----------------------------------------------------------------|
-| /update-query-parsing    | Start the query parsing update workflow                        |
-| /address-review-feedback | Begin iteration based on code review feedback or code polishing |
-```
+| /query-parsing-update-workflow          | Start the query parsing update workflow                        |
+| /code-review-feedback-iteration-workflow | Begin iteration based on code review feedback or code polishing |

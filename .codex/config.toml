@@ -3,7 +3,6 @@
 # ECC Tools generated Codex baseline
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
-web_search = "live"
 
 [mcp_servers.github]
 command = "npx"
@@ -11,7 +10,7 @@ args = ["-y", "@modelcontextprotocol/server-github"]
 
 [mcp_servers.context7]
 command = "npx"
-args = ["-y", "@upstash/context7-mcp@latest"]
+args = ["-y", "@upstash/context7-mcp@3.0.0"]
 
 [mcp_servers.exa]
 url = "https://mcp.exa.ai/mcp"
@@ -22,7 +21,7 @@ args = ["-y", "@modelcontextprotocol/server-memory"]
 
 [mcp_servers.playwright]
 command = "npx"
-args = ["-y", "@playwright/mcp@latest", "--extension"]
+args = ["-y", "@playwright/mcp@0.0.75", "--extension"]
 
 [mcp_servers.sequential-thinking]
 command = "npx"
@@ -45,4 +44,4 @@ config_file = "agents/reviewer.toml"
 
 [agents.docs_researcher]
 description = "Documentation specialist that verifies APIs, framework behavior, and release notes."
-config_file = "agents/docs-researcher.toml"
+config_file = "agents/docs_researcher.toml"
