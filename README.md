@@ -244,6 +244,7 @@ If OpenHIM is unreachable at startup the mediator logs a warning and continues r
 |-------|---------|-------------|
 | `timeoutMs` | `30000` | Per-source HTTP request timeout in milliseconds. Increase for slow sources. |
 | `maxSocketsPerSource` | `5` | Maximum concurrent TCP connections per upstream source. Connection pooling with keep-alive is enabled automatically. |
+| `maxConcurrentUpstreamRequests` | `max(20, source-count × 3)` | Caps in-flight upstream requests across all sources to protect upstream systems during fan-out. |
 | `rejectUnauthorized` | `true` | Set to `false` to accept self-signed TLS certificates from upstream FHIR servers (development only). |
 
 There is also a request-level timeout at the Express layer (`requestTimeoutMs`, default `120000` ms) that guards against slow upstreams hanging the HTTP response indefinitely. If a request exceeds this limit the mediator returns HTTP 504 with a FHIR OperationOutcome. To override the default, add `requestTimeoutMs` to the `performance` section:
@@ -408,7 +409,7 @@ Below is a complete `config/config.json` showing every available option:
   "rateLimiting": {
     "enabled": true,
     "windowMs": 60000,
-    "maxRequests": 100
+    "maxRequests": 300
   },
   "compression": {
     "enabled": true,
@@ -441,7 +442,13 @@ Returns a synthetic CapabilityStatement listing all 161 supported FHIR R4 resour
 
 ### `GET /fhir/:resourceType?_count=N&_since=...`
 
-Searches all configured sources in parallel, merges results, and returns a FHIR Bundle. All query parameters are passed through to each source. No deduplication is performed — duplicate resources from different sources are passed through as-is.
+Searches all configured sources in parallel, merges results, and returns a FHIR Bundle. Query parameters are validated before fan-out:
+
+- Known FHIR underscore parameters are allowed (including modifier forms like `_include:iterate`)
+- Resource-specific parameters without underscore are passed through
+- Unknown underscore parameters are rejected with HTTP 400
+
+Exact duplicate resources (`resourceType/id`) from multiple sources are removed from the merged bundle.
 
 - `_count` — page size (default: 20, max: 500)
 - `_since` — passed through for incremental sync
@@ -450,7 +457,7 @@ If results span multiple pages, the Bundle includes a `next` link with a `_getpa
 
 ### `GET /fhir?_getpages=TOKEN&_getpagesoffset=N&_count=M`
 
-Offset-based pagination. The token maps to per-source `_getpages` tokens stored in the LRU cache. The offset and count are forwarded to each source.
+Offset-based pagination. The token is stateless and encodes per-source `_getpages` tokens (replica-safe for clustered/multi-pod deployments). The offset and count are forwarded to each source.
 
 ### `GET /health`
 
@@ -768,7 +775,7 @@ Stateless tokens encode one `_getpages` token per active source. For 20 sources 
 - [x] **TLS** — native HTTPS is supported: set `config.tls.enabled = true` and point `certFile`/`keyFile` at your certificate files (or use `TLS_CERT_FILE` / `TLS_KEY_FILE` env vars). Alternatively, terminate TLS at your reverse proxy or OpenHIM Core.
 - [x] **Secrets management** — use Kubernetes Secrets + `envFrom` for source credentials (`SOURCE_{id}_PASSWORD`, `SOURCE_{id}_USERNAME`, `SOURCE_{id}_BEARER_TOKEN`). `config.json` no longer ships with any credentials. The mediator warns at startup if a source has an empty password and no bearer token.
 - [ ] **`rejectUnauthorized`** — leave `true` (default) unless upstream servers use self-signed certificates.
-- [ ] **Rate limiting** — configure `rateLimiting.maxRequests` to match your expected pipeline request rate. When inbound auth is enabled, rate limiting is always active (default: 100 req/min per IP).
+- [ ] **Rate limiting** — configure `rateLimiting.maxRequests` to match your expected pipeline request rate. When inbound auth is enabled, rate limiting is always active (default: `max(300, source-count × 50)` requests/min per IP).
 
 ### 📊 Observability checklist
 

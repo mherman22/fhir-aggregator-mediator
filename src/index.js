@@ -21,6 +21,10 @@ const logger = require('./logger');
 
 const config = require('../config/config.json');
 const mediatorConfig = require('../config/mediator.json');
+const MIN_CONCURRENT_UPSTREAM = 20;
+const CONCURRENT_PER_SOURCE_MULTIPLIER = 3;
+const MIN_RATE_LIMIT_REQUESTS_PER_WINDOW = 300;
+const RATE_LIMIT_PER_SOURCE_MULTIPLIER = 50;
 
 // Apply environment variable overrides (Issue 9)
 applyEnvOverrides(config);
@@ -40,10 +44,23 @@ async function startWorker() {
   const sourceMonitor = new SourceMonitor();
   const circuitBreaker = new CircuitBreaker(config.circuitBreaker || {});
   const metrics = createMetrics();
+  const hasValidSourceArray = Array.isArray(config.sources) && config.sources.length > 0;
+  const sourceCount = hasValidSourceArray ? config.sources.length : 1;
+  if (!hasValidSourceArray) {
+    logger.warn(
+      'No valid sources array found while computing defaults; falling back to sourceCount=1'
+    );
+  }
 
   // Upstream concurrency limiter — prevents fan-out storms during large batch runs
+  // Keep enough fan-out capacity for normal throughput while preventing request storms.
+  const defaultMaxConcurrentUpstream = Math.max(
+    MIN_CONCURRENT_UPSTREAM,
+    sourceCount * CONCURRENT_PER_SOURCE_MULTIPLIER
+  );
   const maxConcurrentUpstream =
-    (config.performance && config.performance.maxConcurrentUpstreamRequests) || 50;
+    (config.performance && config.performance.maxConcurrentUpstreamRequests) ||
+    defaultMaxConcurrentUpstream;
   const semaphore = new Semaphore(maxConcurrentUpstream);
 
   // Issue 7: Security headers via helmet
@@ -59,16 +76,26 @@ async function startWorker() {
   const authEnabled = !!(config.inboundAuth && config.inboundAuth.enabled);
   const shouldRateLimit = authEnabled || rateLimitingConfig.enabled !== false;
   if (shouldRateLimit) {
+    const defaultRateLimitWindowMs = 60000;
+    // Scale default inbound rate limit with source count so pipelines can page through results
+    // without tripping rate limits in multi-source deployments.
+    const defaultRateLimitMaxRequests = Math.max(
+      MIN_RATE_LIMIT_REQUESTS_PER_WINDOW,
+      sourceCount * RATE_LIMIT_PER_SOURCE_MULTIPLIER
+    );
+    const windowMs = rateLimitingConfig.windowMs || defaultRateLimitWindowMs;
+    const maxRequests = rateLimitingConfig.maxRequests || defaultRateLimitMaxRequests;
+    const retryAfterSeconds = Math.ceil(windowMs / 1000);
     const fhirLimiter = rateLimit({
-      windowMs: rateLimitingConfig.windowMs || 60000,
-      max: rateLimitingConfig.maxRequests || 100,
+      windowMs,
+      max: maxRequests,
       standardHeaders: true,
       legacyHeaders: false,
       handler: (req, res) => {
         res
           .status(429)
           .set('Content-Type', 'application/fhir+json; charset=utf-8')
-          .set('Retry-After', '60')
+          .set('Retry-After', String(retryAfterSeconds))
           .json({
             resourceType: 'OperationOutcome',
             issue: [
