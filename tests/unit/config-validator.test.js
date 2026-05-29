@@ -149,7 +149,10 @@ describe('config-validator', () => {
 
     describe('circuitBreaker', () => {
       it('accepts valid circuitBreaker config', () => {
-        const cfg = { ...validConfig, circuitBreaker: { failureThreshold: 5, resetTimeoutMs: 30000 } };
+        const cfg = {
+          ...validConfig,
+          circuitBreaker: { failureThreshold: 5, resetTimeoutMs: 30000 },
+        };
         expect(() => validateConfig(cfg)).not.toThrow();
       });
 
