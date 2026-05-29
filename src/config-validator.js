@@ -88,6 +88,25 @@ function validateConfig(config) {
     }
   }
 
+  // circuitBreaker (optional)
+  if (config.circuitBreaker !== undefined) {
+    if (typeof config.circuitBreaker !== 'object' || config.circuitBreaker === null) {
+      errors.push('circuitBreaker must be an object');
+    } else {
+      const cb = config.circuitBreaker;
+      if (cb.failureThreshold !== undefined) {
+        if (!Number.isInteger(cb.failureThreshold) || cb.failureThreshold < 1) {
+          errors.push('circuitBreaker.failureThreshold must be a positive integer');
+        }
+      }
+      if (cb.resetTimeoutMs !== undefined) {
+        if (typeof cb.resetTimeoutMs !== 'number' || cb.resetTimeoutMs < 1) {
+          errors.push('circuitBreaker.resetTimeoutMs must be a positive number');
+        }
+      }
+    }
+  }
+
   // strictMode (optional boolean)
   if (config.strictMode !== undefined && typeof config.strictMode !== 'boolean') {
     errors.push('strictMode must be a boolean');

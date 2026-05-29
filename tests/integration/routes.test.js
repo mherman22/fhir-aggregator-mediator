@@ -306,6 +306,44 @@ describe('routes', () => {
       const res = await supertest(app).get('/fhir/metadata').set('X-Correlation-ID', id);
       expect(res.headers['x-correlation-id']).toBe(id);
     });
+
+    it('returns next link in pagination response when upstream has more pages', async () => {
+      // Create a bundle that has a next link pointing to page 3
+      const { makeBundle } = require('../fixtures/bundles');
+      const bundleWithNext = makeBundle(
+        [{ resourceType: 'Location', id: 'loc1', name: 'X' }],
+        100,
+        'http://src1:8080/fhir?_getpages=page3token&_getpagesoffset=40&_count=20'
+      );
+      const state = { src1: 'abc' };
+      const token = paginationManager.createToken(state);
+      mockFhirClient.fetchUrl.mockResolvedValue(bundleWithNext);
+
+      const res = await supertest(app)
+        .get(`/fhir?_getpages=${token}&_getpagesoffset=20&_count=20`)
+        .expect(200);
+
+      expect(res.body.resourceType).toBe('Bundle');
+      const nextLink = res.body.link.find((l) => l.relation === 'next');
+      expect(nextLink).toBeTruthy();
+      expect(nextLink.url).toContain('_getpages=');
+      expect(nextLink.url).toContain('_getpagesoffset=40');
+      expect(nextLink.url).toContain('_count=20');
+    });
+
+    it('does not return next link in pagination response when upstream has no more pages', async () => {
+      const state = { src1: 'abc' };
+      const token = paginationManager.createToken(state);
+      // source1Bundle has no next link
+      mockFhirClient.fetchUrl.mockResolvedValue(source1Bundle);
+
+      const res = await supertest(app)
+        .get(`/fhir?_getpages=${token}&_getpagesoffset=20&_count=20`)
+        .expect(200);
+
+      const nextLink = res.body.link.find((l) => l.relation === 'next');
+      expect(nextLink).toBeUndefined();
+    });
   });
 
   describe('strict mode', () => {
@@ -323,6 +361,20 @@ describe('routes', () => {
       );
       strictApp = express();
       strictApp.use(strictRouter);
+    });
+
+    it('returns 502 during pagination when a source fails in strict mode', async () => {
+      const state = { src1: 'abc', src2: 'def' };
+      const token = paginationManager.createToken(state);
+      mockFhirClient.fetchUrl
+        .mockResolvedValueOnce(source1Bundle)
+        .mockRejectedValueOnce(new Error('timeout'));
+
+      const res = await supertest(strictApp)
+        .get(`/fhir?_getpages=${token}&_getpagesoffset=20&_count=20`)
+        .expect(502);
+      expect(res.body.resourceType).toBe('OperationOutcome');
+      expect(res.body.issue[0].code).toBe('transient');
     });
 
     it('returns 502 when a source fails in strict mode', async () => {

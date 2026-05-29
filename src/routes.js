@@ -434,7 +434,7 @@ function createRouter(
     if (metrics) metrics.paginationCacheHits.inc();
 
     try {
-      const { entries, failedSources } = await aggregator.fetchWithOffset(
+      const { entries, failedSources, sourceTokens, hasMore } = await aggregator.fetchWithOffset(
         state,
         offset,
         count,
@@ -442,17 +442,46 @@ function createRouter(
         fhirClient,
         sourceMonitor,
         circuitBreaker,
-        { metrics, correlationId: req.correlationId, semaphore }
+        { metrics, correlationId: req.correlationId, semaphore, strictMode }
       );
       setFailureHeaders(res, failedSources);
+
+      // Build the bundle. Include a next link when upstream sources still have
+      // more pages so that fhir-data-pipes (and other consumers) can continue
+      // paginating beyond the first _getpages response.
+      const fhirBase = `${req.protocol}://${req.get('host')}/fhir`;
+      const nextToken = hasMore ? paginationManager.createToken(sourceTokens) : null;
       const bundle = {
         resourceType: 'Bundle',
         type: 'searchset',
         entry: entries,
         link: [{ relation: 'self', url: getBaseUrl(req) }],
       };
+      if (nextToken) {
+        bundle.link.push({
+          relation: 'next',
+          url: `${fhirBase}?_getpages=${nextToken}&_getpagesoffset=${offset + count}&_count=${count}&_bundletype=searchset`,
+        });
+      }
       fhirJson(res, 200, bundle);
     } catch (err) {
+      if (err.isStrictModeFailure) {
+        logger.warn(
+          { correlationId: req.correlationId, failedSources: err.failedSources },
+          'Strict mode: upstream source failure during pagination'
+        );
+        setFailureHeaders(res, err.failedSources);
+        return fhirJson(res, 502, {
+          resourceType: 'OperationOutcome',
+          issue: [
+            {
+              severity: 'error',
+              code: 'transient',
+              diagnostics: `One or more upstream sources failed: ${err.failedSources.join(', ')}`,
+            },
+          ],
+        });
+      }
       logger.error({ correlationId: req.correlationId, error: err.message }, 'Pagination error');
       fhirJson(res, 500, {
         resourceType: 'OperationOutcome',

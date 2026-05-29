@@ -106,7 +106,7 @@ class SourceMonitor {
    * Optionally includes circuit breaker state.
    *
    * Overall status is UP when all required (non-optional) sources are UP.
-   * DEGRADED if any required source is not UP, or if any optional source is not UP.
+   * DEGRADED if any required source is not UP (optional sources do not affect overall status).
    */
   getHealth(circuitBreaker) {
     const cbStates = circuitBreaker ? circuitBreaker.getStates() : {};

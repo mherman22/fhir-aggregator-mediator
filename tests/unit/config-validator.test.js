@@ -147,6 +147,38 @@ describe('config-validator', () => {
       });
     });
 
+    describe('circuitBreaker', () => {
+      it('accepts valid circuitBreaker config', () => {
+        const cfg = { ...validConfig, circuitBreaker: { failureThreshold: 5, resetTimeoutMs: 30000 } };
+        expect(() => validateConfig(cfg)).not.toThrow();
+      });
+
+      it('rejects non-integer failureThreshold', () => {
+        const cfg = { ...validConfig, circuitBreaker: { failureThreshold: 1.5 } };
+        expect(() => validateConfig(cfg)).toThrow('positive integer');
+      });
+
+      it('rejects zero failureThreshold', () => {
+        const cfg = { ...validConfig, circuitBreaker: { failureThreshold: 0 } };
+        expect(() => validateConfig(cfg)).toThrow('positive integer');
+      });
+
+      it('rejects negative resetTimeoutMs', () => {
+        const cfg = { ...validConfig, circuitBreaker: { resetTimeoutMs: -1 } };
+        expect(() => validateConfig(cfg)).toThrow('positive number');
+      });
+
+      it('accepts circuitBreaker with only some fields set', () => {
+        const cfg = { ...validConfig, circuitBreaker: { failureThreshold: 3 } };
+        expect(() => validateConfig(cfg)).not.toThrow();
+      });
+
+      it('rejects non-object circuitBreaker', () => {
+        const cfg = { ...validConfig, circuitBreaker: 'yes' };
+        expect(() => validateConfig(cfg)).toThrow('circuitBreaker must be an object');
+      });
+    });
+
     describe('writeTarget', () => {
       it('accepts a valid writeTarget that references an existing source', () => {
         const cfg = { ...validConfig, writeTarget: 'src1' };

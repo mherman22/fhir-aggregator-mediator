@@ -198,6 +198,7 @@ async function searchAll(
  * @param {SourceMonitor} sourceMonitor
  * @param {CircuitBreaker} circuitBreaker
  * @param {Object}  options
+ * @returns {{ entries, failedSources, sourceTokens, hasMore }}
  */
 async function fetchWithOffset(
   state,
@@ -209,7 +210,7 @@ async function fetchWithOffset(
   circuitBreaker,
   options = {}
 ) {
-  const { metrics, correlationId, semaphore } = options;
+  const { metrics, correlationId, semaphore, strictMode } = options;
   const extraHeaders = buildUpstreamHeaders(correlationId);
 
   // Only fetch from sources that appeared in the original page result
@@ -227,10 +228,11 @@ async function fetchWithOffset(
       return Promise.resolve(null);
     }
 
-    // Build the upstream pagination URL using the source's configured baseUrl
-    // (not stored in the token, to prevent SSRF via crafted tokens)
+    // Build the upstream pagination URL using the source's configured baseUrl.
+    // The _getpages value is percent-encoded so that tokens with special characters
+    // (e.g. from non-HAPI servers) cannot inject extra query parameters.
     const fetchUrl =
-      `${source.baseUrl}?_getpages=${state[source.id]}` +
+      `${source.baseUrl}?_getpages=${encodeURIComponent(state[source.id])}` +
       `&_getpagesoffset=${offset}` +
       `&_count=${count}`;
 
@@ -269,9 +271,25 @@ async function fetchWithOffset(
   const results = await Promise.all(promises);
 
   const allEntries = [];
-  for (const bundle of results) {
+  const newSourceTokens = {};
+
+  for (let i = 0; i < results.length; i++) {
+    const bundle = results[i];
+    const source = activeSources[i];
     if (!bundle) continue;
     allEntries.push(...(bundle.entry || []));
+
+    // Propagate the upstream _getpages token to allow subsequent page fetches.
+    // Some servers change the token each page; others keep it static. Either way
+    // we capture whatever token the upstream returned so the next request is correct.
+    const links = Array.isArray(bundle.link) ? bundle.link : [];
+    const nextLink = links.find((l) => l.relation === 'next');
+    if (nextLink) {
+      const token = extractGetpagesToken(nextLink.url);
+      if (token) {
+        newSourceTokens[source.id] = token;
+      }
+    }
   }
 
   const { entries, removedCount } = removeDuplicateIds(allEntries);
@@ -279,7 +297,18 @@ async function fetchWithOffset(
     metrics.dedupRemovedTotal.inc(removedCount);
   }
 
-  return { entries, failedSources };
+  const hasMore = Object.keys(newSourceTokens).length > 0;
+
+  if (strictMode && failedSources.length > 0) {
+    const err = new Error(
+      `Strict mode: ${failedSources.length} source(s) failed during pagination: ${failedSources.join(', ')}`
+    );
+    err.failedSources = failedSources;
+    err.isStrictModeFailure = true;
+    throw err;
+  }
+
+  return { entries, failedSources, sourceTokens: newSourceTokens, hasMore };
 }
 
 module.exports = { searchAll, fetchWithOffset };

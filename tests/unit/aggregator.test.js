@@ -206,6 +206,60 @@ describe('aggregator', () => {
         .map((e) => e.resource.id);
       expect(prIds).toEqual(['pr1']);
     });
+
+    it('returns hasMore=false and empty sourceTokens when no upstream next links', async () => {
+      mockFhirClient.fetchUrl
+        .mockResolvedValueOnce(source1Bundle) // no next link
+        .mockResolvedValueOnce(source2Bundle); // no next link
+
+      const result = await fetchWithOffset(state, 0, 20, testSources, mockFhirClient, mockMonitor);
+      expect(result.hasMore).toBe(false);
+      expect(result.sourceTokens).toEqual({});
+    });
+
+    it('returns hasMore=true and sourceTokens when upstream has a next link', async () => {
+      const bundleWithNext = makeBundle(
+        [{ resourceType: 'Location', id: 'loc1', name: 'X' }],
+        100,
+        'http://src1:8080/fhir?_getpages=page2token&_getpagesoffset=40&_count=20'
+      );
+      mockFhirClient.fetchUrl
+        .mockResolvedValueOnce(bundleWithNext) // src1 has next page
+        .mockResolvedValueOnce(source1Bundle); // src2 done
+
+      const result = await fetchWithOffset(state, 20, 20, testSources, mockFhirClient, mockMonitor);
+      expect(result.hasMore).toBe(true);
+      expect(result.sourceTokens.src1).toBe('page2token');
+      expect(result.sourceTokens.src2).toBeUndefined();
+    });
+
+    it('percent-encodes _getpages token values that contain special characters', async () => {
+      const specialState = { src1: 'token+with/special=chars' };
+      mockFhirClient.fetchUrl.mockResolvedValue(source1Bundle);
+
+      await fetchWithOffset(specialState, 0, 20, testSources, mockFhirClient, mockMonitor);
+
+      expect(mockFhirClient.fetchUrl).toHaveBeenCalledWith(
+        testSources[0],
+        'http://src1:8080/fhir?_getpages=token%2Bwith%2Fspecial%3Dchars&_getpagesoffset=0&_count=20',
+        expect.any(Object)
+      );
+    });
+
+    it('throws with isStrictModeFailure in strict mode when a source fails', async () => {
+      mockFhirClient.fetchUrl
+        .mockResolvedValueOnce(source1Bundle)
+        .mockRejectedValueOnce(new Error('timeout'));
+
+      await expect(
+        fetchWithOffset(state, 0, 20, testSources, mockFhirClient, mockMonitor, null, {
+          strictMode: true,
+        })
+      ).rejects.toMatchObject({
+        isStrictModeFailure: true,
+        failedSources: ['src2'],
+      });
+    });
   });
 
   describe('strict mode', () => {
